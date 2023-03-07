@@ -729,6 +729,8 @@ void dyad_update(void) {
     #pragma warning(pop)
   #endif
 
+// blocks too long... has to be done on an extra thread...
+
   select(dyad_selectSet.maxfd + 1,
          dyad_selectSet.fds[SELECT_READ],
          dyad_selectSet.fds[SELECT_WRITE],

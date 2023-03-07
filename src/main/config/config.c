@@ -716,13 +716,45 @@ void validateAndFixGyroConfig(void)
                 motorUpdateRestriction *= 2;
             }
             if (pidLooptime < motorUpdateRestriction) {
+
+#ifdef SIMULATOR_BUILD
+                motorUpdateRestriction = 1.0f / 4000.0f;
+#endif
+
+                printf(
+                  "pidLooptime < motorUpdateRestriction:\n" \
+                  "pidLooptime = %f\n" \
+                  "motorUpdateRestriction = %f\n" \
+                  "samplingTime = %f\n",
+                  pidLooptime,
+                  motorUpdateRestriction,
+                  samplingTime
+                );
+
                 uint8_t minPidProcessDenom = motorUpdateRestriction / samplingTime;
+                printf(
+                  "minPidProcessDenom = %d\n",
+                  minPidProcessDenom
+                );
                 if (motorUpdateRestriction / samplingTime > minPidProcessDenom) {
                     // if any fractional part then round up
                     minPidProcessDenom++;
                 }
+                printf(
+                  "minPidProcessDenom = %d\n",
+                  minPidProcessDenom
+                );
                 minPidProcessDenom = constrain(minPidProcessDenom, 1, MAX_PID_PROCESS_DENOM);
+                printf(
+                  "minPidProcessDenom = %d\n",
+                  minPidProcessDenom
+                );
                 pidConfigMutable()->pid_process_denom = MAX(pidConfigMutable()->pid_process_denom, minPidProcessDenom);
+
+                printf(
+                  "pid_process_denom = %d\n",
+                  pidConfigMutable()->pid_process_denom
+                );
             }
         }
     }

@@ -708,6 +708,11 @@ void init(void)
 
     systemState |= SYSTEM_STATE_SENSORS_READY;
 
+    printf(
+      "pid_process_denom = %d\n",
+      pidConfig()->pid_process_denom
+    );
+
     // Set the targetLooptime based on the detected gyro sampleRateHz and pid_process_denom
     gyroSetTargetLooptime(pidConfig()->pid_process_denom);
 

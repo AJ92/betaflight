@@ -30,7 +30,11 @@
 #include "drivers/timer.h"
 
 #define BRUSHED_MOTORS_PWM_RATE 16000
-#define BRUSHLESS_MOTORS_PWM_RATE 480
+#if defined(SIMULATOR_BUILD) 
+  #define BRUSHLESS_MOTORS_PWM_RATE 4000
+#elif
+  #define BRUSHLESS_MOTORS_PWM_RATE 480
+#endif
 
 #define ALL_MOTORS 255
 

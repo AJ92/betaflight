@@ -107,6 +107,7 @@ typedef enum {
     DEBUG_GPS_DOP,
     DEBUG_FAILSAFE,
     DEBUG_GYRO_CALIBRATION,
+    DEBUG_SIM,
     DEBUG_COUNT
 } debugType_e;
 
