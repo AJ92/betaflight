@@ -719,6 +719,12 @@ void validateAndFixGyroConfig(void)
                 motorUpdateRestriction *= 2;
             }
             if (pidLooptime < motorUpdateRestriction) {
+
+//PATCHED: for sim build
+#ifdef SIMULATOR_BUILD
+                motorUpdateRestriction = 1.0f / 4000.0f;
+#endif
+
                 uint8_t minPidProcessDenom = motorUpdateRestriction / samplingTime;
                 if (motorUpdateRestriction / samplingTime > minPidProcessDenom) {
                     // if any fractional part then round up

@@ -117,4 +117,6 @@ const char * const debugModeNames[DEBUG_COUNT] = {
     "RPM_LIMIT",
     "RC_STATS",
     "MAG_CALIB",
+    //PATCHED: own debug mode
+    "SIM",
 };

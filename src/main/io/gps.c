@@ -399,9 +399,11 @@ void gpsInit(void)
     gpsData.state_ts = millis();
 #ifdef USE_GPS_UBLOX
     gpsData.ubloxUsingFlightModel = false;
+    //PATCHED: moved
+    gpsData.platformVersion = UBX_VERSION_UNDEF;
 #endif
     gpsData.updateRateHz = 10; // initialise at 10hz
-    gpsData.platformVersion = UBX_VERSION_UNDEF;
+    //gpsData.platformVersion = UBX_VERSION_UNDEF;
 
 #ifdef USE_DASHBOARD
     gpsData.errors = 0;
@@ -421,9 +423,12 @@ void gpsInit(void)
         return;
     }
 
+//PATCHED: added ifdef
+#ifdef USE_GPS_UBLOX
     // set the user's intended baud rate
     initBaudRateIndex = BAUD_COUNT;
     initBaudRateCycleCount = 0;
+#endif
     gpsData.userBaudRateIndex = DEFAULT_BAUD_RATE_INDEX;
     for (unsigned i = 0; i < GPS_INIT_DATA_ENTRY_COUNT; i++) {
       if (gpsInitData[i].baudrateIndex == gpsPortConfig->gps_baudrateIndex) {

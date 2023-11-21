@@ -30,7 +30,13 @@
 #include "drivers/timer.h"
 
 #define BRUSHED_MOTORS_PWM_RATE 16000
-#define BRUSHLESS_MOTORS_PWM_RATE 480
+//PATCHED: raised PWM rate to ~ DSHOT level for simulation
+#if defined(SIMULATOR_BUILD) 
+  // sets motor update restriction for sim to dshot300 level
+  #define BRUSHLESS_MOTORS_PWM_RATE 10000
+#elif
+  #define BRUSHLESS_MOTORS_PWM_RATE 480
+#endif
 
 #define ALL_MOTORS 255
 

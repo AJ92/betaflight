@@ -4817,12 +4817,15 @@ if (buildKey) {
                 cliPrint("configured");
             }
         }
+//PATCHED: 
+#ifdef USE_GPS_UBLOX
         if (gpsData.platformVersion != UBX_VERSION_UNDEF) {
             cliPrint(", version = ");
             cliPrintf("%s", ubloxVersionMap[gpsData.platformVersion].str);
         } else {
             cliPrint("unknown");
         }
+#endif
     } else {
         cliPrint("NOT ENABLED");
     }

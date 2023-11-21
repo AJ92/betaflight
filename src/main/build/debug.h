@@ -117,6 +117,8 @@ typedef enum {
     DEBUG_RPM_LIMIT,
     DEBUG_RC_STATS,
     DEBUG_MAG_CALIB,
+    //PATCHED: own debug mode
+    DEBUG_SIM,
     DEBUG_COUNT
 } debugType_e;
 

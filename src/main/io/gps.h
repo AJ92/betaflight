@@ -127,6 +127,7 @@ typedef enum {
     UBX_VAL_LAYER_BBR = 0x02,
     UBX_VAL_LAYER_FLASH = 0x04,
 } ubloxValLayer_e;
+#endif //PATCHED: ubloxModel_e and ubloxUtcStandard_e used by pg
 
 typedef enum {
     UBLOX_MODEL_PORTABLE = 0,
@@ -146,6 +147,8 @@ typedef enum {
     UBLOX_UTC_STANDARD_SU = 6,
     UBLOX_UTC_STANDARD_NTSC = 7,
 } ubloxUtcStandard_e;
+
+#ifdef USE_GPS_UBLOX // PATCHED
 
 struct ubloxVersion_s {
     uint32_t hw;

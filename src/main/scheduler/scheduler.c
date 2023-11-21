@@ -487,7 +487,8 @@ FAST_CODE void scheduler(void)
             if (schedLoopStartCycles > schedLoopStartMinCycles) {
                 schedLoopStartCycles -= schedLoopStartDeltaDownCycles;
             }
-#if !defined(UNIT_TEST)
+//PATCHED: 
+#if !defined(UNIT_TEST) && !defined(SIMULATOR_MULTITHREAD)
             while (schedLoopRemainingCycles > 0) {
                 nowCycles = getCycleCounter();
                 schedLoopRemainingCycles = cmpTimeCycles(nextTargetCycles, nowCycles);
