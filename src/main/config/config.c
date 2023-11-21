@@ -679,6 +679,11 @@ void validateAndFixGyroConfig(void)
         }
 #endif
 
+        printf(
+          "motorPwmProtocol = %d\n",
+          motorConfig()->dev.motorPwmProtocol
+        );
+
         switch (motorConfig()->dev.motorPwmProtocol) {
         case PWM_TYPE_STANDARD:
                 motorUpdateRestriction = 1.0f / BRUSHLESS_MOTORS_PWM_RATE;
@@ -716,10 +721,6 @@ void validateAndFixGyroConfig(void)
                 motorUpdateRestriction *= 2;
             }
             if (pidLooptime < motorUpdateRestriction) {
-
-#ifdef SIMULATOR_BUILD
-                motorUpdateRestriction = 1.0f / 4000.0f;
-#endif
 
                 printf(
                   "pidLooptime < motorUpdateRestriction:\n" \

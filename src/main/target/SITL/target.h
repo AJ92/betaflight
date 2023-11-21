@@ -27,6 +27,7 @@
 
 #include "common/utils.h"
 
+#undef TARGET_BOARD_IDENTIFIER
 #define TARGET_BOARD_IDENTIFIER "SITL"
 
 #define SIMULATOR_MULTITHREAD

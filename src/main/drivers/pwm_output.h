@@ -31,7 +31,8 @@
 
 #define BRUSHED_MOTORS_PWM_RATE 16000
 #if defined(SIMULATOR_BUILD) 
-  #define BRUSHLESS_MOTORS_PWM_RATE 4000
+// sets motor update restriction for sim to dshot300 level
+  #define BRUSHLESS_MOTORS_PWM_RATE 10000
 #elif
   #define BRUSHLESS_MOTORS_PWM_RATE 480
 #endif

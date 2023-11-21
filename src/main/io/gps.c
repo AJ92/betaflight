@@ -1870,7 +1870,7 @@ static void GPS_calculateDistanceFlownVerticalSpeed(bool initialize)
                 GPS_distanceFlownInCm += dist;
             }
         }
-        GPS_verticalSpeedInCmS = (gpsSol.llh.altCm - lastAlt) * 1000 / (currentMillis - lastMillis);
+        GPS_verticalSpeedInCmS = (gpsSol.llh.altCm - lastAlt) * 1000 / MAX(currentMillis - lastMillis, 1);
         GPS_verticalSpeedInCmS = constrain(GPS_verticalSpeedInCmS, -1500, 1500);
     }
     lastCoord[GPS_LONGITUDE] = gpsSol.llh.lon;
