@@ -1348,6 +1348,13 @@ bool osdUpdateCheck(timeUs_t currentTimeUs, timeDelta_t currentDeltaTimeUs)
     UNUSED(currentDeltaTimeUs);
     static timeUs_t osdUpdateDueUs = 0;
 
+    //TODO: fix for multiple init calls
+
+    if(cmpTimeUs(currentTimeUs, osdUpdateDueUs) < -1000000){
+        osdUpdateDueUs = 0;
+        osdState = OSD_STATE_INIT;
+    }
+
     if (osdState == OSD_STATE_IDLE) {
         // If the OSD is due a refresh, mark that as being the case
         if (cmpTimeUs(currentTimeUs, osdUpdateDueUs) > 0) {
