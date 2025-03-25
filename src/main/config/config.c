@@ -271,7 +271,10 @@ static void validateAndFixConfig(void)
 
 #if defined(USE_BATTERY_VOLTAGE_SAG_COMPENSATION)
         if (batteryConfig()->voltageMeterSource != VOLTAGE_METER_ADC) {
+            //TODO: fix enable for SITL
+#if !defined(_SIMULATOR_BUILD)
             pidProfilesMutable(i)->vbat_sag_compensation = 0;
+#endif
         }
 #endif
     }
