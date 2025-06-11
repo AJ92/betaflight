@@ -392,8 +392,12 @@ static void mspRebootFn(serialPort_t *serialPort)
         return;
     }
 
+#if defined(SIMULATOR_BUILD)
+    // sim shouldn't get stuck...
+#else
     // control should never return here.
     while (true) ;
+#endif
 }
 
 #define MSP_DISPATCH_DELAY_US 1000000
