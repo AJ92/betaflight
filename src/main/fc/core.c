@@ -532,7 +532,9 @@ void tryArm(void)
         const timeUs_t currentTimeUs = micros();
 
 #ifdef USE_DSHOT
-        if (cmpTimeUs(currentTimeUs, getLastDshotBeaconCommandTimeUs()) < DSHOT_BEACON_GUARD_DELAY_US) {
+        // Handle timer wraparound by checking if the time difference is reasonable
+        timeDelta_t beaconTimeDiff = cmpTimeUs(currentTimeUs, getLastDshotBeaconCommandTimeUs());
+        if (beaconTimeDiff < DSHOT_BEACON_GUARD_DELAY_US && beaconTimeDiff >= 0) {
             if (tryingToArm == ARMING_DELAYED_DISARMED) {
                 if (IS_RC_MODE_ACTIVE(BOXCRASHFLIP)) {
                     tryingToArm = ARMING_DELAYED_CRASHFLIP;
@@ -557,27 +559,11 @@ void tryArm(void)
                 }
             }
 #endif
-
             // choose crashflip outcome on arming
-            // disarm can arise in processRx() if the crashflip switch is reversed while in crashflip mode
-            // if we were unsuccessful, or cannot determin success, arming will be blocked and we can't get here
-            // hence we only get here with crashFlipModeActive if the switch was reversed and result successful
-            if (crashFlipModeActive) {
-                // flip was successful, continue into normal flight without need to disarm/rearm
-                // note: preceding disarm will have set motors to normal rotation direction
-                crashFlipModeActive = false;
-            } else {
-                // when arming and not in crashflip mode, block entry to crashflip if delayed by the dshot beeper,
-                // otherwise consider only the switch position
-                crashFlipModeActive = (tryingToArm == ARMING_DELAYED_CRASHFLIP) ? false : IS_RC_MODE_ACTIVE(BOXCRASHFLIP);
-#ifdef USE_DSHOT
-                // previous disarm will have set direction to normal
-                // at this point we only need to reverse the motors if crashflipMode is active
-                if (crashFlipModeActive) {
-                    setMotorSpinDirection(DSHOT_CMD_SPIN_DIRECTION_REVERSED);
-                }
-#endif
-            }
+            // consider only the switch position
+            crashFlipModeActive = IS_RC_MODE_ACTIVE(BOXCRASHFLIP);
+
+            setMotorSpinDirection(crashFlipModeActive ? DSHOT_CMD_SPIN_DIRECTION_REVERSED : DSHOT_CMD_SPIN_DIRECTION_NORMAL);
         }
 #endif // USE_DSHOT
 
@@ -616,7 +602,7 @@ void tryArm(void)
         resetMaxFFT();
 #endif
 
-        disarmAt = currentTimeUs + armingConfig()->auto_disarm_delay * 1e6;   // start disarm timeout, will be extended when throttle is nonzero
+        disarmAt = currentTimeUs + armingConfig()->auto_disarm_delay * 1000 * 1000;   // start disarm timeout, will be extended when throttle is nonzero
 
         lastArmingDisabledReason = 0;
 
@@ -942,7 +928,7 @@ void processRxModes(timeUs_t currentTimeUs)
     // When armed and motors aren't spinning, do beeps and then disarm
     // board after delay so users without buzzer won't lose fingers.
     // mixTable constrains motor commands, so checking  throttleStatus is enough
-    const timeUs_t autoDisarmDelayUs = armingConfig()->auto_disarm_delay * 1e6;
+    const timeUs_t autoDisarmDelayUs = armingConfig()->auto_disarm_delay * 1e6f;
     if (ARMING_FLAG(ARMED)
         && featureIsEnabled(FEATURE_MOTOR_STOP)
         && !isFixedWing()
@@ -1035,7 +1021,7 @@ void processRxModes(timeUs_t currentTimeUs)
 
 #ifdef USE_ALTITUDE_HOLD
     // only if armed; can coexist with position hold
-    if (ARMING_FLAG(ARMED) 
+    if (ARMING_FLAG(ARMED)
         // and not in GPS_RESCUE_MODE, to give it priority over Altitude Hold
         && !FLIGHT_MODE(GPS_RESCUE_MODE)
         // and either the alt_hold switch is activated, or are in failsafe landing mode
@@ -1056,7 +1042,7 @@ void processRxModes(timeUs_t currentTimeUs)
 
 #ifdef USE_POSITION_HOLD
     // only if armed; can coexist with altitude hold
-    if (ARMING_FLAG(ARMED) 
+    if (ARMING_FLAG(ARMED)
         // and not in GPS_RESCUE_MODE, to give it priority over Position Hold
         && !FLIGHT_MODE(GPS_RESCUE_MODE)
         // and either the alt_hold switch is activated, or are in failsafe landing mode
@@ -1182,12 +1168,6 @@ void processRxModes(timeUs_t currentTimeUs)
     pidSetAcroTrainerState(IS_RC_MODE_ACTIVE(BOXACROTRAINER) && sensors(SENSOR_ACC));
 #endif // USE_ACRO_TRAINER
 
-#ifdef USE_RC_SMOOTHING_FILTER
-    if (ARMING_FLAG(ARMED) && !rcSmoothingInitializationComplete() && rxConfig()->rc_smoothing_mode) {
-        beeper(BEEPER_RC_SMOOTHING_INIT_FAIL);
-    }
-#endif
-
     pidSetAntiGravityState(IS_RC_MODE_ACTIVE(BOXANTIGRAVITY) || featureIsEnabled(FEATURE_ANTI_GRAVITY));
 }
 
@@ -1270,7 +1250,7 @@ static FAST_CODE_NOINLINE void subTaskPidSubprocesses(timeUs_t currentTimeUs)
 }
 
 #ifdef USE_TELEMETRY
-#define GYRO_TEMP_READ_DELAY_US 3e6    // Only read the gyro temp every 3 seconds
+#define GYRO_TEMP_READ_DELAY_US (3 * 1000 * 1000)    // Only read the gyro temp every 3 seconds
 void subTaskTelemetryPollSensors(timeUs_t currentTimeUs)
 {
     static timeUs_t lastGyroTempTimeUs = 0;

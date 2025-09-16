@@ -50,6 +50,8 @@
 
     Add the mapping for the element ID to the background drawing function to the
     osdElementBackgroundFunction array.
+    
+    You should also add a corresponding entry to the file: cms_menu_osd.c
 
     Accelerometer reqirement:
     -------------------------
@@ -170,6 +172,7 @@
 #include "sensors/barometer.h"
 #include "sensors/battery.h"
 #include "sensors/sensors.h"
+#include "sensors/rangefinder.h"
 
 #ifdef USE_GPS_PLUS_CODES
 // located in lib/main/google/olc
@@ -309,7 +312,6 @@ static void renderOsdEscRpmOrFreq(getEscRpmOrFreqFnPtr escFnPtr, osdElementParms
 }
 #endif
 
-#if defined(USE_ADC_INTERNAL) || defined(USE_ESC_SENSOR)
 int osdConvertTemperatureToSelectedUnit(int tempInDegreesCelcius)
 {
     switch (osdConfig()->units) {
@@ -319,7 +321,6 @@ int osdConvertTemperatureToSelectedUnit(int tempInDegreesCelcius)
         return tempInDegreesCelcius;
     }
 }
-#endif
 
 static void osdFormatAltitudeString(char * buff, int32_t altitudeCm, osdElementType_e variantType)
 {
@@ -369,7 +370,7 @@ static void osdFormatCoordinate(char *buff, gpsCoordinateType_e coordinateType, 
                 OLC_LatLon location;
                 location.lat = (double)gpsSol.llh.lat / GPS_DEGREES_DIVIDER;
                 location.lon = (double)gpsSol.llh.lon / GPS_DEGREES_DIVIDER;
-                OLC_Encode(&location, PLUS_CODE_DIGITS, buff, OSD_ELEMENT_BUFFER_LENGTH - 3);
+                OLC_Encode(&location, PLUS_CODE_DIGITS, buff);
             } else {
                 memset(buff, SYM_HYPHEN, PLUS_CODE_DIGITS + 1);
                 buff[8] = '+';
@@ -473,7 +474,15 @@ bool osdFormatRtcDateTime(char *buffer)
         return false;
     }
 
-    dateTimeFormatLocalShort(buffer, &dateTime);
+    switch (activeElement.type) {
+    case OSD_ELEMENT_TYPE_2:
+        tfp_sprintf(buffer, "%02d.%02d %02d:%02d", dateTime.month, dateTime.day, dateTime.hours, dateTime.minutes);
+        break;
+    case OSD_ELEMENT_TYPE_1:
+    default:
+        dateTimeFormatLocalShort(buffer, &dateTime);
+        break;
+    }
 
     return true;
 }
@@ -515,6 +524,8 @@ static char osdGetTimerSymbol(osd_timer_source_e src)
         return SYM_FLY_M;
     case OSD_TIMER_SRC_ON_OR_ARMED:
         return ARMING_FLAG(ARMED) ? SYM_FLY_M : SYM_ON_M;
+    case OSD_TIMER_SRC_LAUNCH_TIME:
+        return 'L';
     default:
         return ' ';
     }
@@ -533,6 +544,8 @@ static timeUs_t osdGetTimerValue(osd_timer_source_e src)
     }
     case OSD_TIMER_SRC_ON_OR_ARMED:
         return ARMING_FLAG(ARMED) ? osdFlyTime : micros();
+    case OSD_TIMER_SRC_LAUNCH_TIME:
+        return osdLaunchTime;
     default:
         return 0;
     }
@@ -654,7 +667,7 @@ MAYBE_UNUSED static char osdGetVarioToSelectedUnitSymbol(void)
     }
 }
 
-#if defined(USE_ADC_INTERNAL) || defined(USE_ESC_SENSOR)
+#if defined(USE_ADC_INTERNAL) || defined(USE_ESC_SENSOR) || defined(USE_DSHOT_TELEMETRY)
 char osdGetTemperatureSymbolForSelectedUnit(void)
 {
     switch (osdConfig()->units) {
@@ -669,6 +682,22 @@ char osdGetTemperatureSymbolForSelectedUnit(void)
 // *************************
 // Element drawing functions
 // *************************
+
+#ifdef USE_RANGEFINDER
+static void osdElementLidarDist(osdElementParms_t *element)
+{
+    int16_t dist = rangefinderGetLatestAltitude();
+
+    if (dist > 0) {
+
+        tfp_sprintf(element->buff, "RF:%3d", dist);
+
+    } else {
+
+        tfp_sprintf(element->buff, "RF:---");
+    }
+}
+#endif
 
 #ifdef USE_OSD_ADJUSTMENTS
 static void osdElementAdjustmentRange(osdElementParms_t *element)
@@ -769,7 +798,7 @@ static void osdElementUpDownReference(osdElementParms_t *element)
         char *symbol[2] = {"U", "D"}; // character buffer
         int direction;
 
-        if(attitude.values.pitch>0.0){ //nose down
+        if (attitude.values.pitch > 0.0f){ //nose down
             thetaB = -earthUpinBodyFrame[2]; // get pitch w/re to nadir (use small angle approx for sine)
             psiB = -earthUpinBodyFrame[1]; // calculate the yaw w/re to nadir (use small angle approx for sine)
             direction = DOWN;
@@ -1085,10 +1114,10 @@ static void osdElementFlymode(osdElementParms_t *element)
     } else if (IS_RC_MODE_ACTIVE(BOXACROTRAINER)) {
         strcpy(element->buff, "ATRN");
 #ifdef USE_CHIRP
-    // the additional check for pidChirpIsFinished() is to have visual feedback for user that don't have warnings enabled in their googles
+    // the additional check for pidChirpIsFinished() is to have visual feedback for user that don't have warnings enabled in their goggles
     } else if (FLIGHT_MODE(CHIRP_MODE) && !pidChirpIsFinished()) {
-#endif
         strcpy(element->buff, "CHIR");
+#endif
     } else if (isAirmodeEnabled()) {
         strcpy(element->buff, "AIR ");
     } else {
@@ -1559,7 +1588,7 @@ static void osdElementRemainingTimeEstimate(osdElementParms_t *element)
         element->attr = DISPLAYPORT_SEVERITY_CRITICAL;
     }
 
-    if (mAhDrawn <= 0.1 * osdConfig()->cap_alarm) {  // also handles the mAhDrawn == 0 condition
+    if (mAhDrawn <= 0.1f * osdConfig()->cap_alarm) {  // also handles the mAhDrawn == 0 condition
         tfp_sprintf(element->buff, "--:--");
     } else if (mAhDrawn > osdConfig()->cap_alarm) {
         tfp_sprintf(element->buff, "00:00");
@@ -1906,6 +1935,9 @@ static const uint8_t osdElementDisplayOrder[] = {
     OSD_SYS_VTX_TEMP,
     OSD_SYS_FAN_SPEED,
 #endif
+#ifdef USE_RANGEFINDER
+    OSD_LIDAR_DIST,
+#endif
 };
 
 // Define the mapping between the OSD element id and the function to draw it
@@ -2049,6 +2081,9 @@ const osdElementDrawFn osdElementDrawFunction[OSD_ITEM_COUNT] = {
     [OSD_SYS_WARNINGS]            = osdElementSys,
     [OSD_SYS_VTX_TEMP]            = osdElementSys,
     [OSD_SYS_FAN_SPEED]           = osdElementSys,
+#endif
+#ifdef USE_RANGEFINDER
+    [OSD_LIDAR_DIST]              = osdElementLidarDist,
 #endif
 };
 
@@ -2496,7 +2531,7 @@ void osdUpdateAlarms(void)
 #endif
 
 #if defined(USE_ESC_SENSOR) || defined(USE_DSHOT_TELEMETRY)
-    bool blink;
+    bool blink = false;
 
 #if defined(USE_ESC_SENSOR)
     if (featureIsEnabled(FEATURE_ESC_SENSOR)) {
@@ -2506,7 +2541,6 @@ void osdUpdateAlarms(void)
 #endif
 #if defined(USE_DSHOT_TELEMETRY)
     {
-        blink = false;
         if (osdConfig()->esc_temp_alarm != ESC_TEMP_ALARM_OFF) {
             for (uint32_t k = 0; !blink && (k < getMotorCount()); k++) {
                 blink = (dshotTelemetryState.motorState[k].telemetryTypes & (1 << DSHOT_TELEMETRY_TYPE_TEMPERATURE)) != 0 &&

@@ -32,7 +32,7 @@
 #include "drivers/dma_reqmap.h"
 #include "drivers/io.h"
 #include "drivers/nvic.h"
-#include "drivers/rcc.h"
+#include "platform/rcc.h"
 #include "drivers/time.h"
 #include "drivers/timer.h"
 #include "drivers/system.h"
@@ -251,7 +251,7 @@ bool pwmDshotMotorHardwareConfig(const timerHardware_t *timerHardware, uint8_t m
 #ifdef USE_DSHOT_DMAR
     if (useBurstDshot) {
         const resourceOwner_t *owner = dmaGetOwner(dmaIdentifier);
-        if (owner->owner == OWNER_TIMUP && owner->resourceIndex == timerGetTIMNumber(timerHardware->tim)) {
+        if (owner->owner == OWNER_TIMUP && owner->index == timerGetTIMNumber(timerHardware->tim)) {
             dmaIsConfigured = true;
         } else if (!dmaAllocate(dmaIdentifier, OWNER_TIMUP, timerGetTIMNumber(timerHardware->tim))) {
             return false;

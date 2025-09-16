@@ -30,6 +30,7 @@ STDPERIPH_SRC   = \
             stm32g4xx_hal_pcd_ex.c \
             stm32g4xx_hal_pwr.c \
             stm32g4xx_hal_pwr_ex.c \
+            stm32g4xx_hal_qspi.c \
             stm32g4xx_hal_rcc.c \
             stm32g4xx_hal_rcc_ex.c \
             stm32g4xx_hal_rtc.c \
@@ -78,6 +79,7 @@ CMSIS_SRC       :=
 INCLUDE_DIRS    := \
             $(INCLUDE_DIRS) \
             $(TARGET_PLATFORM_DIR) \
+            $(TARGET_PLATFORM_DIR)/include \
             $(TARGET_PLATFORM_DIR)/startup \
             $(STDPERIPH_DIR)/Inc \
             $(LIB_MAIN_DIR)/$(USBCORE_DIR)/Inc \
@@ -89,7 +91,7 @@ INCLUDE_DIRS    := \
             $(TARGET_PLATFORM_DIR)/vcp_hal
 
 #Flags
-ARCH_FLAGS      = -mthumb -mcpu=cortex-m4 -march=armv7e-m -mfloat-abi=hard -mfpu=fpv4-sp-d16 -fsingle-precision-constant
+ARCH_FLAGS      = -mthumb -mcpu=cortex-m4 -march=armv7e-m -mfloat-abi=hard -mfpu=fpv4-sp-d16
 
 DEVICE_FLAGS    = -DUSE_HAL_DRIVER -DUSE_FULL_LL_DRIVER -DUSE_DMA_RAM -DMAX_MPU_REGIONS=16
 
@@ -119,11 +121,13 @@ VCP_SRC = \
 MCU_COMMON_SRC = \
             drivers/accgyro/accgyro_mpu.c \
             drivers/bus_i2c_timing.c \
+            drivers/bus_quadspi.c \
             drivers/dshot_bitbang_decode.c \
             STM32/adc_stm32g4xx.c \
             STM32/bus_i2c_hal_init.c \
             STM32/bus_i2c_hal.c \
             STM32/bus_spi_ll.c \
+            STM32/bus_quadspi_hal.c \
             STM32/debug.c \
             STM32/dma_reqmap_mcu.c \
             STM32/dma_stm32g4xx.c \
@@ -146,8 +150,6 @@ MCU_COMMON_SRC = \
             STM32/camera_control_stm32.c \
             drivers/adc.c \
             drivers/serial_escserial.c \
-            drivers/serial_pinconfig.c \
-            drivers/serial_uart_pinconfig.c \
             STM32/startup/system_stm32g4xx.c
 
 # G4's MSC use the same driver layer file with F7
@@ -168,9 +170,7 @@ SIZE_OPTIMISED_SRC += \
             drivers/bus_i2c_timing.c \
             STM32/bus_i2c_hal_init.c \
             STM32/serial_usb_vcp.c \
-            drivers/serial_escserial.c \
-            drivers/serial_pinconfig.c \
-            drivers/serial_uart_pinconfig.c
+            drivers/serial_escserial.c
 
 DSP_LIB := $(LIB_MAIN_DIR)/CMSIS/DSP
 DEVICE_FLAGS += -DARM_MATH_MATRIX_CHECK -DARM_MATH_ROUNDING -D__FPU_PRESENT=1 -DUNALIGNED_SUPPORT_DISABLE -DARM_MATH_CM4

@@ -331,7 +331,7 @@ static const blackboxSimpleFieldDefinition_t blackboxSlowFields[] = {
     {"rxFlightChannelsValid", -1, UNSIGNED, PREDICT(0),      ENCODING(TAG2_3S32)}
 };
 
-typedef enum BlackboxState {
+typedef enum {
     BLACKBOX_STATE_DISABLED = 0,
     BLACKBOX_STATE_STOPPED,
     BLACKBOX_STATE_PREPARE_LOG_FILE,
@@ -348,7 +348,7 @@ typedef enum BlackboxState {
     BLACKBOX_STATE_START_ERASE,
     BLACKBOX_STATE_ERASING,
     BLACKBOX_STATE_ERASED
-} BlackboxState;
+} blackboxState_e;
 
 typedef struct blackboxMainState_s {
     uint32_t time;
@@ -407,7 +407,7 @@ typedef struct blackboxSlowState_s {
 //From rc_controls.c
 extern boxBitmask_t rcModeActivationMask;
 
-static BlackboxState blackboxState = BLACKBOX_STATE_DISABLED;
+static blackboxState_e blackboxState = BLACKBOX_STATE_DISABLED;
 
 static uint32_t blackboxLastArmingBeep = 0;
 static uint32_t blackboxLastFlightModeFlags = 0; // New event tracking of flight modes
@@ -474,12 +474,12 @@ static bool blackboxIsOnlyLoggingIntraframes(void)
     return blackboxPInterval == 0;
 }
 
-static bool isFieldEnabled(FlightLogFieldSelect_e field)
+static bool isFieldEnabled(flightLogFieldSelect_e field)
 {
     return (blackboxConfig()->fields_disabled_mask & (1 << field)) == 0;
 }
 
-static bool testBlackboxConditionUncached(FlightLogFieldCondition condition)
+static bool testBlackboxConditionUncached(flightLogFieldCondition_e condition)
 {
     switch (condition) {
     case CONDITION(ALWAYS):
@@ -592,19 +592,19 @@ static bool testBlackboxConditionUncached(FlightLogFieldCondition condition)
 static void blackboxBuildConditionCache(void)
 {
     blackboxConditionCache = 0;
-    for (FlightLogFieldCondition cond = FLIGHT_LOG_FIELD_CONDITION_FIRST; cond <= FLIGHT_LOG_FIELD_CONDITION_LAST; cond++) {
+    for (flightLogFieldCondition_e cond = FLIGHT_LOG_FIELD_CONDITION_FIRST; cond <= FLIGHT_LOG_FIELD_CONDITION_LAST; cond++) {
         if (testBlackboxConditionUncached(cond)) {
             blackboxConditionCache |= (uint64_t) 1 << cond;
         }
     }
 }
 
-static bool testBlackboxCondition(FlightLogFieldCondition condition)
+static bool testBlackboxCondition(flightLogFieldCondition_e condition)
 {
     return (blackboxConditionCache & (uint64_t) 1 << condition) != 0;
 }
 
-static void blackboxSetState(BlackboxState newState)
+static void blackboxSetState(blackboxState_e newState)
 {
     //Perform initial setup required for the new state
     switch (newState) {
@@ -1051,6 +1051,9 @@ void blackboxValidateConfig(void)
 #ifdef USE_SDCARD
     case BLACKBOX_DEVICE_SDCARD:
 #endif
+#ifdef USE_BLACKBOX_VIRTUAL
+    case BLACKBOX_DEVICE_VIRTUAL:
+#endif
     case BLACKBOX_DEVICE_SERIAL:
         // Device supported, leave the setting alone
         break;
@@ -1325,7 +1328,7 @@ static void loadMainState(timeUs_t currentTimeUs)
  * For all header types, provide a "mainFrameChar" which is the name for the field and will be used to refer to it in the
  * header (e.g. P, I etc). For blackboxDeltaField_t fields, also provide deltaFrameChar, otherwise set this to zero.
  *
- * Provide an array 'conditions' of FlightLogFieldCondition enums if you want these conditions to decide whether a field
+ * Provide an array 'conditions' of flightLogFieldCondition_e enums if you want these conditions to decide whether a field
  * should be included or not. Otherwise provide NULL for this parameter and NULL for secondCondition.
  *
  * Set xmitState.headerIndex to 0 and xmitState.u.fieldIndex to -1 before calling for the first time.
@@ -1527,6 +1530,7 @@ static bool blackboxWriteSysinfo(void)
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_PID_PROCESS_DENOM, "%d",      activePidLoopDenom);
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_THR_MID, "%d",                currentControlRateProfile->thrMid8);
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_THR_EXPO, "%d",               currentControlRateProfile->thrExpo8);
+        BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_THR_HOVER, "%d",              currentControlRateProfile->thrHover8);
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_TPA_MODE, "%d",               currentPidProfile->tpa_mode);
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_TPA_RATE, "%d",               currentPidProfile->tpa_rate);
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_TPA_BREAKPOINT, "%d",         currentPidProfile->tpa_breakpoint);
@@ -1683,7 +1687,7 @@ static bool blackboxWriteSysinfo(void)
                                                                             gyroConfig()->gyro_soft_notch_hz_2);
         BLACKBOX_PRINT_HEADER_LINE("gyro_notch_cutoff", "%d,%d",            gyroConfig()->gyro_soft_notch_cutoff_1,
                                                                             gyroConfig()->gyro_soft_notch_cutoff_2);
-        BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_GYRO_TO_USE, "%d",            gyroConfig()->gyro_to_use);
+        BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_GYRO_ENABLE_MASK, "%d",       gyroConfig()->gyro_enabled_bitmask);
         BLACKBOX_PRINT_HEADER_LINE("gyro_debug_axis", "%d",                 gyroConfig()->gyro_filter_debug_axis);
 #ifdef USE_DYN_NOTCH_FILTER
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_DYN_NOTCH_MAX_HZ, "%d",       dynNotchConfig()->dyn_notch_max_hz);
@@ -1753,15 +1757,13 @@ static bool blackboxWriteSysinfo(void)
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_RC_SMOOTHING_AUTO_FACTOR, "%d",          rxConfig()->rc_smoothing_auto_factor_rpy);
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_RC_SMOOTHING_AUTO_FACTOR_THROTTLE, "%d", rxConfig()->rc_smoothing_auto_factor_throttle);
 
-        BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_RC_SMOOTHING_FEEDFORWARD_CUTOFF, "%d", rcSmoothingData->feedforwardCutoffSetting);
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_RC_SMOOTHING_SETPOINT_CUTOFF, "%d",    rcSmoothingData->setpointCutoffSetting);
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_RC_SMOOTHING_THROTTLE_CUTOFF, "%d",    rcSmoothingData->throttleCutoffSetting);
 
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_RC_SMOOTHING_DEBUG_AXIS, "%d",         rcSmoothingData->debugAxis);
-        BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_RC_SMOOTHING_ACTIVE_CUTOFFS, "%d,%d,%d", rcSmoothingData->feedforwardCutoffFrequency,
-                                                                            rcSmoothingData->setpointCutoffFrequency,
+        BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_RC_SMOOTHING_ACTIVE_CUTOFFS, "%d,%d", rcSmoothingData->setpointCutoffFrequency,
                                                                             rcSmoothingData->throttleCutoffFrequency);
-        BLACKBOX_PRINT_HEADER_LINE("rc_smoothing_rx_smoothed", "%d",        lrintf(rcSmoothingData->smoothedRxRateHz));
+        BLACKBOX_PRINT_HEADER_LINE("rc_smoothing_rx_smoothed", "%d",        lrintf(getCurrentRxRateHz()));
 #endif // USE_RC_SMOOTHING_FILTER
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_RATES_TYPE, "%d",             currentControlRateProfile->rates_type);
 
@@ -2049,7 +2051,7 @@ STATIC_UNIT_TESTED void blackboxLogIteration(timeUs_t currentTimeUs)
  */
 void blackboxUpdate(timeUs_t currentTimeUs)
 {
-    static BlackboxState cacheFlushNextState;
+    static blackboxState_e cacheFlushNextState;
 
     switch (blackboxState) {
     case BLACKBOX_STATE_STOPPED:

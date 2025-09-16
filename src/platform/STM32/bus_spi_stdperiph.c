@@ -35,7 +35,7 @@
 #include "drivers/bus_spi_impl.h"
 #include "drivers/exti.h"
 #include "drivers/io.h"
-#include "drivers/rcc.h"
+#include "platform/rcc.h"
 
 // Use DMA if possible if this many bytes are to be transferred
 #define SPI_DMA_THRESHOLD 8
@@ -76,7 +76,7 @@ static void spiSetDivisorBRreg(SPI_TypeDef *instance, uint16_t divisor)
 #undef BR_BITS
 }
 
-void spiInitDevice(SPIDevice device)
+void spiInitDevice(spiDevice_e device)
 {
     spiDevice_t *spi = &(spiDevice[device]);
 
@@ -126,7 +126,7 @@ void spiInternalResetDescriptors(busDevice_t *bus)
         dmaInitRx->DMA_DIR = DMA_DIR_PeripheralToMemory;
         dmaInitRx->DMA_Mode = DMA_Mode_Normal;
         dmaInitRx->DMA_PeripheralBaseAddr = (uint32_t)&bus->busType_u.spi.instance->DR;
-        dmaInitRx->DMA_Priority = DMA_Priority_Low;
+        dmaInitRx->DMA_Priority = DMA_Priority_Medium;
         dmaInitRx->DMA_PeripheralInc = DMA_PeripheralInc_Disable;
         dmaInitRx->DMA_PeripheralDataSize = DMA_PeripheralDataSize_Byte;
     }
@@ -143,7 +143,7 @@ void spiInternalResetStream(dmaChannelDescriptor_t *descriptor)
     DMA_CLEAR_FLAG(descriptor, DMA_IT_HTIF | DMA_IT_TEIF | DMA_IT_TCIF);
 }
 
-static bool spiInternalReadWriteBufPolled(SPI_TypeDef *instance, const uint8_t *txData, uint8_t *rxData, int len)
+bool spiInternalReadWriteBufPolled(SPI_TypeDef *instance, const uint8_t *txData, uint8_t *rxData, int len)
 {
     uint8_t b;
 
@@ -162,23 +162,11 @@ static bool spiInternalReadWriteBufPolled(SPI_TypeDef *instance, const uint8_t *
     return true;
 }
 
-void spiInternalInitStream(const extDevice_t *dev, bool preInit)
+void spiInternalInitStream(const extDevice_t *dev, volatile busSegment_t *segment)
 {
     STATIC_DMA_DATA_AUTO uint8_t dummyTxByte = 0xff;
     STATIC_DMA_DATA_AUTO uint8_t dummyRxByte;
     busDevice_t *bus = dev->bus;
-
-    volatile busSegment_t *segment = bus->curSegment;
-
-    if (preInit) {
-        // Prepare the init structure for the next segment to reduce inter-segment interval
-        segment++;
-        if(segment->len == 0) {
-            // There's no following segment
-            return;
-        }
-    }
-
     int len = segment->len;
 
     uint8_t *txData = segment->u.buffers.txData;
@@ -369,74 +357,9 @@ void spiSequenceStart(const extDevice_t *dev)
     if (bus->useDMA && dmaSafe && ((segmentCount > 1) ||
                                    (xferLen >= SPI_DMA_THRESHOLD) ||
                                    !bus->curSegment[segmentCount].negateCS)) {
-        // Intialise the init structures for the first transfer
-        spiInternalInitStream(dev, false);
-
-        // Assert Chip Select
-        IOLo(dev->busType_u.spi.csnPin);
-
-        // Start the transfers
-        spiInternalStartDMA(dev);
+        spiProcessSegmentsDMA(dev);
     } else {
-        busSegment_t *lastSegment = NULL;
-        bool segmentComplete;
-
-        // Manually work through the segment list performing a transfer for each
-        while (bus->curSegment->len) {
-            if (!lastSegment || lastSegment->negateCS) {
-                // Assert Chip Select if necessary - it's costly so only do so if necessary
-                IOLo(dev->busType_u.spi.csnPin);
-            }
-
-            spiInternalReadWriteBufPolled(
-                    bus->busType_u.spi.instance,
-                    bus->curSegment->u.buffers.txData,
-                    bus->curSegment->u.buffers.rxData,
-                    bus->curSegment->len);
-
-            if (bus->curSegment->negateCS) {
-                // Negate Chip Select
-                IOHi(dev->busType_u.spi.csnPin);
-            }
-
-            segmentComplete = true;
-            if (bus->curSegment->callback) {
-                switch(bus->curSegment->callback(dev->callbackArg)) {
-                case BUS_BUSY:
-                    // Repeat the last DMA segment
-                    segmentComplete = false;
-                    break;
-
-                case BUS_ABORT:
-                    bus->curSegment = (busSegment_t *)BUS_SPI_FREE;
-                    segmentComplete = false;
-                    return;
-
-                case BUS_READY:
-                default:
-                    // Advance to the next DMA segment
-                    break;
-                }
-            }
-            if (segmentComplete) {
-                lastSegment = (busSegment_t *)bus->curSegment;
-                bus->curSegment++;
-            }
-        }
-
-        // If a following transaction has been linked, start it
-        if (bus->curSegment->u.link.dev) {
-            busSegment_t *endSegment = (busSegment_t *)bus->curSegment;
-            const extDevice_t *nextDev = endSegment->u.link.dev;
-            busSegment_t *nextSegments = (busSegment_t *)endSegment->u.link.segments;
-            bus->curSegment = nextSegments;
-            endSegment->u.link.dev = NULL;
-            endSegment->u.link.segments = NULL;
-            spiSequenceStart(nextDev);
-        } else {
-            // The end of the segment list has been reached, so mark transactions as complete
-            bus->curSegment = (busSegment_t *)BUS_SPI_FREE;
-        }
+        spiProcessSegmentsPolled(dev);
     }
 }
 #endif

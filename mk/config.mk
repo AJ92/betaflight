@@ -4,7 +4,7 @@ CONFIGS_REPO_URL ?= https://github.com/betaflight/config
 CONFIGS_SUBMODULE_DIR = src/config
 BASE_CONFIGS      = $(sort $(notdir $(patsubst %/,%,$(dir $(wildcard $(CONFIG_DIR)/configs/*/config.h)))))
 
-ifneq ($(filter-out %_install test% %_clean clean% %-print %.hex %.h hex checks help configs $(BASE_TARGETS) $(BASE_CONFIGS),$(MAKECMDGOALS)),)
+ifneq ($(filter-out %_sdk %_install test% %_clean clean% %-print %.hex %.h hex checks help configs $(BASE_TARGETS) $(BASE_CONFIGS),$(MAKECMDGOALS)),)
 ifeq ($(wildcard $(CONFIG_DIR)/configs/),)
 $(error `$(CONFIG_DIR)` not found. Have you hydrated configuration using: 'make configs'?)
 endif
@@ -57,21 +57,23 @@ endif #config
 .PHONY: configs
 configs:
 ifeq ($(shell realpath $(CONFIG_DIR)),$(shell realpath $(CONFIGS_SUBMODULE_DIR)))
-	git submodule update --init --remote -- $(CONFIGS_SUBMODULE_DIR)
+	@echo "Updating config submodule: $(CONFIGS_SUBMODULE_DIR)"
+	$(V1) git submodule update --init -- $(CONFIGS_SUBMODULE_DIR) || { echo "Config submodule update failed. Please check your git configuration."; exit 1; }
+	@echo "Submodule update succeeded."
 else
 ifeq ($(wildcard $(CONFIG_DIR)),)
 	@echo "Hydrating clone for configs: $(CONFIG_DIR)"
-	$(V0) git clone $(CONFIGS_REPO_URL) $(CONFIG_DIR)
+	$(V1) git clone $(CONFIGS_REPO_URL) $(CONFIG_DIR)
 else
-	$(V0) git -C $(CONFIG_DIR) pull origin
+	$(V1) git -C $(CONFIG_DIR) pull origin
 endif
 endif
 
 $(BASE_CONFIGS):
 	@echo "Building target config $@"
-	$(V0) $(MAKE) $(MAKE_PARALLEL) hex CONFIG=$@
+	$(V0) $(MAKE) fwo CONFIG=$@
 	@echo "Building target config $@ succeeded."
 
 ## <CONFIG>_rev    : build configured target and add revision to filename
 $(addsuffix _rev,$(BASE_CONFIGS)):
-	$(V0) $(MAKE) $(MAKE_PARALLEL) hex CONFIG=$(subst _rev,,$@) REV=yes
+	$(V0) $(MAKE) fwo CONFIG=$(subst _rev,,$@) REV=yes

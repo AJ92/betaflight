@@ -28,7 +28,7 @@
 
 #include "platform.h"
 
-#if defined(USE_GYRO_SPI_ICM42605) || defined(USE_GYRO_SPI_ICM42688P) || defined(USE_ACCGYRO_IIM42653)
+#if defined(USE_GYRO_SPI_ICM42605) || defined(USE_GYRO_SPI_ICM42688P) || defined(USE_ACCGYRO_IIM42652) || defined(USE_ACCGYRO_IIM42653)
 
 #include "common/axis.h"
 #include "common/utils.h"
@@ -59,6 +59,10 @@
 #endif
 
 #define ICM426XX_CLKIN_FREQ                         32000
+
+// Soft Reset
+#define ICM426XX_RA_DEVICE_CONFIG                   0x11
+#define DEVICE_CONFIG_SOFT_RESET_BIT                (1 << 0) // Soft reset bit
 
 #define ICM426XX_RA_REG_BANK_SEL                    0x76
 #define ICM426XX_BANK_SELECT0                       0x00
@@ -107,10 +111,10 @@
 #define ICM426XX_INT1_POLARITY_ACTIVE_HIGH          (1 << 0)
 
 #define ICM426XX_RA_INT_CONFIG0                     0x63  // User Bank 0
-#define ICM426XX_UI_DRDY_INT_CLEAR_ON_SBR           ((0 << 5) || (0 << 4))
-#define ICM426XX_UI_DRDY_INT_CLEAR_ON_SBR_DUPLICATE ((0 << 5) || (0 << 4)) // duplicate settings in datasheet, Rev 1.2.
-#define ICM426XX_UI_DRDY_INT_CLEAR_ON_F1BR          ((1 << 5) || (0 << 4))
-#define ICM426XX_UI_DRDY_INT_CLEAR_ON_SBR_AND_F1BR  ((1 << 5) || (1 << 4))
+#define ICM426XX_UI_DRDY_INT_CLEAR_ON_SBR           ((0 << 5) | (0 << 4))
+#define ICM426XX_UI_DRDY_INT_CLEAR_ON_SBR_DUPLICATE ((0 << 5) | (1 << 4)) // duplicate setting in datasheet, Rev 1.8
+#define ICM426XX_UI_DRDY_INT_CLEAR_ON_F1BR          ((1 << 5) | (0 << 4))
+#define ICM426XX_UI_DRDY_INT_CLEAR_ON_SBR_AND_F1BR  ((1 << 5) | (1 << 4))
 
 #define ICM426XX_RA_INT_CONFIG1                     0x64   // User Bank 0
 #define ICM426XX_INT_ASYNC_RESET_BIT                4
@@ -186,17 +190,25 @@ static void setUserBank(const extDevice_t *dev, const uint8_t user_bank)
 #if defined(USE_GYRO_CLKIN)
 static pwmOutputPort_t pwmGyroClk = {0};
 
+static int findByExtDevice(const extDevice_t *dev) {
+   for (int i = 0; i < GYRO_COUNT; i++) {
+        if (&gyro.gyroSensor[i].gyroDev.dev == dev) {
+            return i;
+        }
+   }
+   return -1;
+}
+
+
 static bool initExternalClock(const extDevice_t *dev)
 {
-    int cfg;
-    if (&gyro.gyroSensor1.gyroDev.dev == dev) {
-        cfg = 0;
-    } else if (&gyro.gyroSensor2.gyroDev.dev == dev) {
-        cfg = 1;
-    } else {
-        // only gyroSensor<n> device supported
+    const int cfg = findByExtDevice(dev);
+
+    if (cfg < 0) {
+        // Could not find a valid sensor
         return false;
     }
+
     const ioTag_t tag = gyroDeviceConfig(cfg)->clkIn;
     const IO_t io = IOGetByTag(tag);
     if (pwmGyroClk.enabled) {
@@ -249,8 +261,19 @@ static void icm426xxEnableExternalClock(const extDevice_t *dev)
 }
 #endif
 
+static void icm426xxSoftReset(const extDevice_t *dev)
+{
+    setUserBank(dev, ICM426XX_BANK_SELECT0);
+
+    spiWriteReg(dev, ICM426XX_RA_DEVICE_CONFIG, DEVICE_CONFIG_SOFT_RESET_BIT);
+
+    delay(1);
+}
+
 uint8_t icm426xxSpiDetect(const extDevice_t *dev)
 {
+    delay(1);                          // power-on time
+    icm426xxSoftReset(dev);
     spiWriteReg(dev, ICM426XX_RA_PWR_MGMT0, 0x00);
 
 #if defined(USE_GYRO_CLKIN)
@@ -260,7 +283,7 @@ uint8_t icm426xxSpiDetect(const extDevice_t *dev)
     uint8_t icmDetected = MPU_NONE;
     uint8_t attemptsRemaining = 20;
     do {
-        delay(150);
+        delay(1);
         const uint8_t whoAmI = spiReadRegMsk(dev, MPU_RA_WHO_AM_I);
         switch (whoAmI) {
         case ICM42605_WHO_AM_I_CONST:
@@ -268,6 +291,9 @@ uint8_t icm426xxSpiDetect(const extDevice_t *dev)
             break;
         case ICM42688P_WHO_AM_I_CONST:
             icmDetected = ICM_42688P_SPI;
+            break;
+        case IIM42652_WHO_AM_I_CONST:
+            icmDetected = IIM_42652_SPI;
             break;
         case IIM42653_WHO_AM_I_CONST:
             icmDetected = IIM_42653_SPI;
@@ -291,6 +317,7 @@ void icm426xxAccInit(accDev_t *acc)
 {
     switch (acc->mpuDetectionResult.sensor) {
     case IIM_42653_SPI:
+    case IIM_42652_SPI:
         acc->acc_1G = 512 * 2; // Accel scale 32g (1024 LSB/g)
         break;
     default:
@@ -304,6 +331,7 @@ bool icm426xxSpiAccDetect(accDev_t *acc)
     switch (acc->mpuDetectionResult.sensor) {
     case ICM_42605_SPI:
     case ICM_42688P_SPI:
+    case IIM_42652_SPI:
     case IIM_42653_SPI:
         break;
     default:
@@ -412,6 +440,7 @@ bool icm426xxSpiGyroDetect(gyroDev_t *gyro)
     case ICM_42688P_SPI:
         gyro->scale = GYRO_SCALE_2000DPS;
         break;
+    case IIM_42652_SPI:
     case IIM_42653_SPI:
         gyro->scale = GYRO_SCALE_4000DPS;
         break;
@@ -429,6 +458,8 @@ static aafConfig_t getGyroAafConfig(const mpuSensor_e gyroModel, const aafConfig
 {
     switch (gyroModel){
     case ICM_42605_SPI:
+    case IIM_42652_SPI:
+    case IIM_42653_SPI:
         switch (config) {
         case GYRO_HARDWARE_LPF_NORMAL:
             return aafLUT42605[AAF_CONFIG_258HZ];
@@ -441,7 +472,6 @@ static aafConfig_t getGyroAafConfig(const mpuSensor_e gyroModel, const aafConfig
         }
 
     case ICM_42688P_SPI:
-    case IIM_42653_SPI:
     default:
         switch (config) {
         case GYRO_HARDWARE_LPF_NORMAL:
@@ -460,4 +490,4 @@ static aafConfig_t getGyroAafConfig(const mpuSensor_e gyroModel, const aafConfig
     }
 }
 
-#endif // USE_GYRO_SPI_ICM42605 || USE_GYRO_SPI_ICM42688P || USE_ACCGYRO_IIM42653
+#endif // USE_GYRO_SPI_ICM42605 || USE_GYRO_SPI_ICM42688P || USE_ACCGYRO_IIM42652 || USE_ACCGYRO_IIM42653

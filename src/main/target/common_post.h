@@ -39,47 +39,55 @@
 
 */
 
+#ifndef PLATFORM_NO_LIBC
+#define PLATFORM_NO_LIBC 1
+#endif
+
 #if (__FPU_PRESENT == 1) && (__FPU_USED == 1)
 #define DEFAULT_AUX_CHANNEL_COUNT       MAX_AUX_CHANNEL_COUNT
 #else
 #define DEFAULT_AUX_CHANNEL_COUNT       6
 #endif
 
-#ifdef USE_ITCM_RAM
-#if defined(ITCM_RAM_OPTIMISATION) && !defined(DEBUG)
-#define FAST_CODE                   __attribute__((section(".tcm_code"))) __attribute__((optimize(ITCM_RAM_OPTIMISATION)))
-#else
-#define FAST_CODE                   __attribute__((section(".tcm_code")))
-#endif
-#ifndef FAST_CODE_PREF
-#define FAST_CODE_PREF              FAST_CODE
-// If a particular target is short of ITCM RAM, defining FAST_CODE_PREF in the target.h file will
-// cause functions decorated FAST_CODE_PREF to *not* go into ITCM RAM
-// but if FAST_CODE_PREF is not defined for the target, FAST_CODE_PREF is an alias to FAST_CODE, and
-// functions decorated with FAST_CODE_PREF *will* go into ITCM RAM.
-#endif
-
-#define FAST_CODE_NOINLINE          NOINLINE
-
-#else
+#ifndef FAST_CODE
 #define FAST_CODE
-#define FAST_CODE_PREF
-#define FAST_CODE_NOINLINE
-#endif // USE_ITCM_RAM
+#endif
 
-#ifdef USE_CCM_CODE
-#define CCM_CODE                    __attribute__((section(".ccm_code")))
-#else
+#ifndef FAST_CODE_PREF
+#define FAST_CODE_PREF  FAST_CODE
+#endif
+
+#ifndef FAST_CODE_NOINLINE
+#define FAST_CODE_NOINLINE
+#endif
+
+#ifndef CCM_CODE
 #define CCM_CODE
 #endif
 
-#ifdef USE_FAST_DATA
-#define FAST_DATA_ZERO_INIT         __attribute__ ((section(".fastram_bss"), aligned(4)))
-#define FAST_DATA                   __attribute__ ((section(".fastram_data"), aligned(4)))
-#else
-#define FAST_DATA_ZERO_INIT
+#ifndef FAST_DATA
 #define FAST_DATA
-#endif // USE_FAST_DATA
+#endif
+
+#ifndef FAST_DATA_ZERO_INIT
+#define FAST_DATA_ZERO_INIT
+#endif
+
+#ifndef MMFLASH_CODE
+#define MMFLASH_CODE
+#endif
+
+#ifndef MMFLASH_CODE_NOINLINE
+#define MMFLASH_CODE_NOINLINE
+#endif
+
+#ifndef MMFLASH_DATA
+#define MMFLASH_DATA
+#endif
+
+#ifndef MMFLASH_DATA_ZERO_INIT
+#define MMFLASH_DATA_ZERO_INIT
+#endif
 
 /*
     BEGIN HARDWARE INCLUSIONS
@@ -101,14 +109,18 @@
     && !defined(USE_ACC_SPI_ICM20649) \
     && !defined(USE_ACC_SPI_ICM20689) \
     && !defined(USE_ACC_SPI_ICM42605) \
+    && !defined(USE_ACCGYRO_ICM40609D) \
     && !defined(USE_ACC_SPI_ICM42688P) \
+    && !defined(USE_ACCGYRO_ICM45686) \
+    && !defined(USE_ACCGYRO_ICM45605) \
     && !defined(USE_ACCGYRO_LSM6DSO) \
     && !defined(USE_ACCGYRO_LSM6DSV16X) \
     && !defined(USE_ACC_SPI_MPU6000) \
     && !defined(USE_ACC_SPI_MPU6500) \
     && !defined(USE_ACC_SPI_MPU9250) \
-    && !defined(USE_VIRTUAL_ACC) \
-    && !defined(USE_ACCGYRO_IIM42653)
+    && !defined(USE_ACCGYRO_IIM42652) \
+    && !defined(USE_ACCGYRO_IIM42653) \
+    && !defined(USE_VIRTUAL_ACC)
 #error At least one USE_ACC device definition required
 #endif
 
@@ -122,13 +134,17 @@
     && !defined(USE_GYRO_SPI_ICM20689) \
     && !defined(USE_GYRO_SPI_ICM42605) \
     && !defined(USE_GYRO_SPI_ICM42688P) \
+    && !defined(USE_ACCGYRO_ICM45686) \
+    && !defined(USE_ACCGYRO_ICM45605) \
+    && !defined(USE_ACCGYRO_ICM40609D) \
     && !defined(USE_ACCGYRO_LSM6DSO) \
     && !defined(USE_ACCGYRO_LSM6DSV16X) \
     && !defined(USE_GYRO_SPI_MPU6000) \
     && !defined(USE_GYRO_SPI_MPU6500) \
     && !defined(USE_GYRO_SPI_MPU9250) \
-    && !defined(USE_VIRTUAL_GYRO) \
-    && !defined(USE_ACCGYRO_IIM42653)
+    && !defined(USE_ACCGYRO_IIM42652) \
+    && !defined(USE_ACCGYRO_IIM42653) \
+    && !defined(USE_VIRTUAL_GYRO)
 #error At least one USE_GYRO device definition required
 #endif
 
@@ -466,10 +482,11 @@
 #define USE_GYRO_SPI_MPU6500
 #endif
 
-// Generate USE_SPI_GYRO or USE_I2C_GYRO
+// Generate USE_SPI_GYRO
 #if defined(USE_GYRO_SPI_ICM20689) || defined(USE_GYRO_SPI_MPU6000) || defined(USE_GYRO_SPI_MPU6500) || defined(USE_GYRO_SPI_MPU9250) \
-    || defined(USE_GYRO_L3GD20) || defined(USE_GYRO_SPI_ICM42605) || defined(USE_GYRO_SPI_ICM42688P) || defined(USE_ACCGYRO_IIM42653) \
-    || defined(USE_ACCGYRO_BMI160) || defined(USE_ACCGYRO_BMI270) || defined(USE_ACCGYRO_LSM6DSV16X) || defined(USE_ACCGYRO_LSM6DSO)
+    || defined(USE_GYRO_L3GD20) || defined(USE_GYRO_SPI_ICM42605) || defined(USE_GYRO_SPI_ICM42688P) || defined(USE_ACCGYRO_ICM45686) \
+    || defined(USE_ACCGYRO_ICM45605) || defined(USE_ACCGYRO_IIM42653) || defined(USE_ACCGYRO_BMI160) || defined(USE_ACCGYRO_BMI270) \
+    || defined(USE_ACCGYRO_LSM6DSV16X) || defined(USE_ACCGYRO_LSM6DSO) || defined(USE_ACCGYRO_ICM40609D) || defined(USE_ACCGYRO_IIM42652)
 #ifndef USE_SPI_GYRO
 #define USE_SPI_GYRO
 #endif
@@ -591,7 +608,7 @@
 #endif
 #endif // USE_OPTICALFLOW_MT
 
-#if defined(USE_RANGEFINDER_HCSR04) || defined(USE_RANGEFINDER_SRF10) || defined(USE_RANGEFINDER_HCSR04_I2C) || defined(USE_RANGEFINDER_VL53L0X) || defined(USE_RANGEFINDER_UIB) || defined(USE_RANGEFINDER_TF) || defined(USE_RANGEFINDER_MT)
+#if defined(USE_RANGEFINDER_HCSR04) || defined(USE_RANGEFINDER_TF) || defined(USE_RANGEFINDER_MT)
 #ifndef USE_RANGEFINDER
 #define USE_RANGEFINDER
 #endif
@@ -612,35 +629,9 @@ extern uint8_t eepromData[EEPROM_SIZE];
 #ifndef CONFIG_IN_FLASH
 #define CONFIG_IN_FLASH
 #endif
-extern uint8_t __config_start;   // configured via linker script when building binaries.
-extern uint8_t __config_end;
-#endif
-
-#if defined(USE_EXST) && !defined(RAMBASED)
-#define USE_FLASH_BOOT_LOADER
-#endif
-
-#if defined(USE_FLASH_MEMORY_MAPPED)
-#if !defined(USE_RAM_CODE)
-#define USE_RAM_CODE
-#endif
-
-#define MMFLASH_CODE RAM_CODE
-#define MMFLASH_CODE_NOINLINE RAM_CODE NOINLINE
-
-#define MMFLASH_DATA FAST_DATA
-#define MMFLASH_DATA_ZERO_INIT FAST_DATA_ZERO_INIT
-#else
-#define MMFLASH_CODE
-#define MMFLASH_CODE_NOINLINE
-#define MMFLASH_DATA
-#define MMFLASH_DATA_ZERO_INIT
-#endif
-
-#ifdef USE_RAM_CODE
-// RAM_CODE for methods that need to be in RAM, but don't need to be in the fastest type of memory.
-// Note: if code is marked as RAM_CODE it *MUST* be in RAM, there is no alternative unlike functions marked with FAST_CODE/CCM_CODE
-#define RAM_CODE                   __attribute__((section(".ram_code")))
+struct linker_symbol;
+extern struct linker_symbol __config_start;   // configured via linker script when building binaries.
+extern struct linker_symbol __config_end;
 #endif
 
 #ifndef USE_ITERM_RELAX
@@ -689,3 +680,4 @@ extern uint8_t __config_end;
 #define USE_PIN_PULL_UP_DOWN
 #endif
 #endif // USE_PINIO
+

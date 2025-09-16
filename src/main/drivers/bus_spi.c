@@ -45,7 +45,7 @@ static uint8_t spiRegisteredDeviceCount = 0;
 spiDevice_t spiDevice[SPIDEV_COUNT];
 busDevice_t spiBusDevice[SPIDEV_COUNT];
 
-SPIDevice spiDeviceByInstance(const SPI_TypeDef *instance)
+spiDevice_e spiDeviceByInstance(const SPI_TypeDef *instance)
 {
 #ifdef USE_SPI_DEVICE_0
     if (instance == SPI0) {
@@ -92,7 +92,7 @@ SPIDevice spiDeviceByInstance(const SPI_TypeDef *instance)
     return SPIINVALID;
 }
 
-SPI_TypeDef *spiInstanceByDevice(SPIDevice device)
+SPI_TypeDef *spiInstanceByDevice(spiDevice_e device)
 {
     if (device == SPIINVALID || device >= SPIDEV_COUNT) {
         return NULL;
@@ -101,7 +101,7 @@ SPI_TypeDef *spiInstanceByDevice(SPIDevice device)
     return spiDevice[device].dev;
 }
 
-bool spiInit(SPIDevice device)
+bool spiInit(spiDevice_e device)
 {
     switch (device) {
     case SPIINVALID:
@@ -485,4 +485,167 @@ void spiSequence(const extDevice_t *dev, busSegment_t *segments)
 
     spiSequenceStart(dev);
 }
+
+// Process segments using DMA - expects DMA irq handler to have been set up to feed into spiIrqHandler.
+FAST_CODE void spiProcessSegmentsDMA(const extDevice_t *dev)
+{
+    // Intialise the init structures for the first transfer
+    spiInternalInitStream(dev, dev->bus->curSegment);
+
+    // Assert Chip Select
+    IOLo(dev->busType_u.spi.csnPin);
+
+    // Start the transfers
+    spiInternalStartDMA(dev);
+}
+
+static void spiPreInitStream(const extDevice_t *dev)
+{
+    // Prepare the init structure for the next segment to reduce inter-segment interval
+    // (if it's a "buffers" segment, not a "link" segment).
+    busSegment_t *nextSegment = (busSegment_t *)dev->bus->curSegment + 1;
+    if (nextSegment->len > 0) {
+        spiInternalInitStream(dev, nextSegment);
+    }
+}
+
+// Interrupt handler common code for SPI receive DMA completion.
+// Proceed to next segment as required.
+FAST_IRQ_HANDLER void spiIrqHandler(const extDevice_t *dev)
+{
+    busDevice_t *bus = dev->bus;
+    busSegment_t *nextSegment;
+
+    if (bus->curSegment->callback) {
+        switch(bus->curSegment->callback(dev->callbackArg)) {
+        case BUS_BUSY:
+            // Repeat the last DMA segment
+            bus->curSegment--;
+            // Reinitialise the cached init values as segment is not progressing
+            spiPreInitStream(dev);
+            break;
+
+        case BUS_ABORT:
+            // Skip to the end of the segment list
+            nextSegment = (busSegment_t *)bus->curSegment + 1;
+            while (nextSegment->len != 0) {
+                bus->curSegment = nextSegment;
+                nextSegment = (busSegment_t *)bus->curSegment + 1;
+            }
+            break;
+
+        case BUS_READY:
+        default:
+            // Advance to the next DMA segment
+            break;
+        }
+    }
+
+    // Advance through the segment list
+    // OK to discard the volatile qualifier here
+    nextSegment = (busSegment_t *)bus->curSegment + 1;
+
+    if (nextSegment->len == 0) {
+        // If a following transaction has been linked, start it
+        if (nextSegment->u.link.dev) {
+            const extDevice_t *nextDev = nextSegment->u.link.dev;
+            busSegment_t *nextSegments = (busSegment_t *)nextSegment->u.link.segments;
+            // The end of the segment list has been reached
+            bus->curSegment = nextSegments;
+            nextSegment->u.link.dev = NULL;
+            nextSegment->u.link.segments = NULL;
+            spiSequenceStart(nextDev);
+        } else {
+            // The end of the segment list has been reached, so mark transactions as complete
+            bus->curSegment = (busSegment_t *)BUS_SPI_FREE;
+        }
+    } else {
+        // Do as much processing as possible before asserting CS to avoid violating minimum high time
+        bool negateCS = bus->curSegment->negateCS;
+
+        bus->curSegment = nextSegment;
+
+        // After the completion of the first segment setup the init structure for the subsequent segment
+        if (bus->initSegment) {
+            spiInternalInitStream(dev, bus->curSegment);
+            bus->initSegment = false;
+        }
+
+        if (negateCS) {
+            // Assert Chip Select - it's costly so only do so if necessary
+            IOLo(dev->busType_u.spi.csnPin);
+        }
+
+        // Launch the next transfer
+        spiInternalStartDMA(dev);
+
+        // Prepare the init structures ready for the next segment to reduce inter-segment time
+        spiPreInitStream(dev);
+    }
+}
+
+FAST_CODE void spiProcessSegmentsPolled(const extDevice_t *dev)
+{
+    busDevice_t *bus = dev->bus;
+    busSegment_t *lastSegment = NULL;
+    bool segmentComplete;
+
+    // Manually work through the segment list performing a transfer for each
+    while (bus->curSegment->len) {
+        if (!lastSegment || lastSegment->negateCS) {
+            // Assert Chip Select if necessary - it's costly so only do so if necessary
+            IOLo(dev->busType_u.spi.csnPin);
+        }
+
+        spiInternalReadWriteBufPolled(
+            bus->busType_u.spi.instance,
+            bus->curSegment->u.buffers.txData,
+            bus->curSegment->u.buffers.rxData,
+            bus->curSegment->len);
+
+        if (bus->curSegment->negateCS) {
+            // Negate Chip Select
+            IOHi(dev->busType_u.spi.csnPin);
+        }
+
+        segmentComplete = true;
+        if (bus->curSegment->callback) {
+            switch(bus->curSegment->callback(dev->callbackArg)) {
+            case BUS_BUSY:
+                // Repeat the last DMA segment
+                segmentComplete = false;
+                break;
+
+            case BUS_ABORT:
+                bus->curSegment = (busSegment_t *)BUS_SPI_FREE;
+                segmentComplete = false;
+                return;
+
+            case BUS_READY:
+            default:
+                // Advance to the next DMA segment
+                break;
+            }
+        }
+        if (segmentComplete) {
+            lastSegment = (busSegment_t *)bus->curSegment;
+            bus->curSegment++;
+        }
+    }
+
+    // If a following transaction has been linked, start it
+    if (bus->curSegment->u.link.dev) {
+        busSegment_t *endSegment = (busSegment_t *)bus->curSegment;
+        const extDevice_t *nextDev = endSegment->u.link.dev;
+        busSegment_t *nextSegments = (busSegment_t *)endSegment->u.link.segments;
+        bus->curSegment = nextSegments;
+        endSegment->u.link.dev = NULL;
+        endSegment->u.link.segments = NULL;
+        spiSequenceStart(nextDev);
+    } else {
+        // The end of the segment list has been reached, so mark transactions as complete
+        bus->curSegment = (busSegment_t *)BUS_SPI_FREE;
+    }
+}
+
 #endif

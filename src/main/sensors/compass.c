@@ -99,15 +99,27 @@ PG_REGISTER_WITH_RESET_FN(compassConfig_t, compassConfig, PG_COMPASS_CONFIG, 4);
 // default compass read interval, for those with no specified ODR, will be TASK_COMPASS_RATE_HZ
 static uint32_t compassReadIntervalUs = TASK_PERIOD_HZ(TASK_COMPASS_RATE_HZ);
 
-void pgResetFn_compassConfig(compassConfig_t *compassConfig)
-{
-    compassConfig->mag_alignment = ALIGN_DEFAULT;
-    memset(&compassConfig->mag_customAlignment, 0x00, sizeof(compassConfig->mag_customAlignment));
-    compassConfig->mag_hardware = MAG_DEFAULT;
+#ifndef MAG_ALIGN
+#define MAG_ALIGN ALIGN_DEFAULT
+#endif
+#ifndef MAG_ALIGN_ROLL
+#define MAG_ALIGN_ROLL 0
+#endif
+#ifndef MAG_ALIGN_PITCH
+#define MAG_ALIGN_PITCH 0
+#endif
+#ifndef MAG_ALIGN_YAW
+#define MAG_ALIGN_YAW 0
+#endif
 
 #ifndef MAG_I2C_ADDRESS
 #define MAG_I2C_ADDRESS 0
 #endif
+
+void pgResetFn_compassConfig(compassConfig_t *compassConfig)
+{
+    compassConfig->mag_alignment = MAG_ALIGN;
+    compassConfig->mag_hardware = MAG_DEFAULT;
 
 // Generate a reasonable default for backward compatibility
 // Strategy is
@@ -142,6 +154,11 @@ void pgResetFn_compassConfig(compassConfig_t *compassConfig)
     compassConfig->mag_spi_csn = IO_TAG_NONE;
 #endif
     compassConfig->interruptTag = IO_TAG(MAG_INT_EXTI);
+
+
+    compassConfig->mag_customAlignment.roll = MAG_ALIGN_ROLL;
+    compassConfig->mag_customAlignment.pitch = MAG_ALIGN_PITCH;
+    compassConfig->mag_customAlignment.yaw = MAG_ALIGN_YAW;
 }
 
 static int16_t magADCRaw[XYZ_AXIS_COUNT];
@@ -158,11 +175,7 @@ void compassPreInit(void)
 #if !defined(SIMULATOR_BUILD)
 static bool compassDetect(magDev_t *magDev, uint8_t *alignment)
 {
-#ifdef MAG_ALIGN
     *alignment = MAG_ALIGN;
-#else
-    *alignment = ALIGN_DEFAULT;
-#endif
 
     magSensor_e magHardware = MAG_NONE;
 
@@ -376,7 +389,7 @@ bool compassInit(void)
     if (magDev.magOdrHz) {
         // For Mags that send data at a fixed ODR, we wait some quiet period after a read before checking for new data
         // allow two re-check intervals, plus a margin for clock variations in mag vs FC
-        uint16_t odrInterval = 1e6 / magDev.magOdrHz;
+        uint16_t odrInterval = (1000 * 1000) / magDev.magOdrHz;
         compassReadIntervalUs =  odrInterval - (2 * COMPASS_RECHECK_INTERVAL_US) - (odrInterval / 20);
     } else {
         // Mags which have no specified ODR will be pinged at the compass task rate
@@ -522,7 +535,7 @@ uint32_t compassUpdate(timeUs_t currentTimeUs)
         static timeUs_t previousTimeUs = 0;
         const timeDelta_t dataIntervalUs = cmpTimeUs(currentTimeUs, previousTimeUs); // time since last data received
         previousTimeUs = currentTimeUs;
-        const uint16_t actualCompassDataRateHz = 1e6 / dataIntervalUs;
+        const uint16_t actualCompassDataRateHz = 1e6f / dataIntervalUs;
         timeDelta_t executeTimeUs = micros() - currentTimeUs;
         DEBUG_SET(DEBUG_MAG_TASK_RATE, 0, TASK_COMPASS_RATE_HZ);
         DEBUG_SET(DEBUG_MAG_TASK_RATE, 1, actualCompassDataRateHz);

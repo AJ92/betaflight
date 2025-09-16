@@ -267,7 +267,8 @@ extiCallbackRec_t bmi160IntCallbackRec;
 
 // Called in ISR context
 // Gyro read has just completed
-static busStatus_e bmi160Intcallback(uint32_t arg)
+#ifdef USE_DMA
+static busStatus_e bmi160Intcallback(uintptr_t arg)
 {
     gyroDev_t *gyro = (gyroDev_t *)arg;
     int32_t gyroDmaDuration = cmpTimeCycles(getCycleCounter(), gyro->gyroLastEXTI);
@@ -280,6 +281,7 @@ static busStatus_e bmi160Intcallback(uint32_t arg)
 
     return BUS_READY;
 }
+#endif
 
 static void bmi160ExtiHandler(extiCallbackRec_t *cb)
 {
@@ -382,7 +384,7 @@ static bool bmi160GyroRead(gyroDev_t *gyro)
         if (gyro->detectedEXTI > GYRO_EXTI_DETECT_THRESHOLD) {
 #ifdef USE_DMA
             if (spiUseDMA(dev)) {
-                dev->callbackArg = (uint32_t)gyro;
+                dev->callbackArg = (uintptr_t)gyro;
                 dev->txBuf[1] = BMI160_REG_GYR_DATA_X_LSB | 0x80;
                 gyro->segments[0].len = 13;
                 gyro->segments[0].callback = bmi160Intcallback;

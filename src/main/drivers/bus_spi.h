@@ -44,7 +44,7 @@ typedef enum {
     SPI_MODE3_POL_HIGH_EDGE_2ND
 } SPIMode_e;
 
-typedef enum SPIDevice {
+typedef enum {
     SPIINVALID = -1,
     SPIDEV_FIRST = 0,
 #if defined(USE_SPI_DEVICE_0)
@@ -58,20 +58,20 @@ typedef enum SPIDevice {
     SPIDEV_4,
     SPIDEV_5,
     SPIDEV_6
-} SPIDevice;
+} spiDevice_e;
 
-// Macros to convert between CLI bus number and SPIDevice.
+// Macros to convert between CLI bus number and spiDevice_e.
 #define SPI_CFG_TO_DEV(x)   ((x) - 1)
 #define SPI_DEV_TO_CFG(x)   ((x) + 1)
 
 void spiPreinit(void);
-bool spiInit(SPIDevice device);
+bool spiInit(spiDevice_e device);
 
 // Called after all devices are initialised to enable SPI DMA where streams are available.
 void spiInitBusDMA(void);
 
-SPIDevice spiDeviceByInstance(const SPI_TypeDef *instance);
-SPI_TypeDef *spiInstanceByDevice(SPIDevice device);
+spiDevice_e spiDeviceByInstance(const SPI_TypeDef *instance);
+SPI_TypeDef *spiInstanceByDevice(spiDevice_e device);
 
 // BusDevice API
 
@@ -140,3 +140,10 @@ bool spiUseSDO_DMA(const extDevice_t *dev);
 void spiBusDeviceRegister(const extDevice_t *dev);
 uint8_t spiGetRegisteredDeviceCount(void);
 uint8_t spiGetExtDeviceCount(const extDevice_t *dev);
+
+// Common code to process linked segments, to be called from spiSequenceStart.
+// DMA path makes use of spiInternalInitStream, spiInternalStartDMA.
+void spiProcessSegmentsDMA(const extDevice_t *dev);
+void spiIrqHandler(const extDevice_t *dev);
+// Polling code calls spiInternalReadWriteBufPolled.
+void spiProcessSegmentsPolled(const extDevice_t *dev);

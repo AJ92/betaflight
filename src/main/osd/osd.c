@@ -114,7 +114,8 @@ const char * const osdTimerSourceNames[] = {
     "ON TIME  ",
     "TOTAL ARM",
     "LAST ARM ",
-    "ON/ARM   "
+    "ON/ARM   ",
+    "LAUNCH TIME",
 };
 
 #define OSD_LOGO_ROWS 4
@@ -127,6 +128,8 @@ const char * const osdTimerSourceNames[] = {
 #define IS_MID(X) (rcData[X] > 1250 && rcData[X] < 1750)
 
 timeUs_t osdFlyTime = 0;
+timeUs_t osdLaunchTime = 0;
+
 #if defined(USE_ACC)
 float osdGForce = 0;
 #endif
@@ -1193,7 +1196,7 @@ static timeDelta_t osdShowArmed(void)
         uint8_t midRow = osdDisplayPort->rows / 2;
         uint8_t midCol = osdDisplayPort->cols / 2;
         osdDrawLogo(midCol - (OSD_LOGO_COLS) / 2, midRow - 5, osdConfig()->arming_logo);
-        ret = osdConfig()->logo_on_arming_duration * 1e5;
+        ret = osdConfig()->logo_on_arming_duration * 100 * 1000; // convert to microseconds
     } else {
         ret = (REFRESH_1S / 2);
     }
@@ -1240,9 +1243,16 @@ STATIC_UNIT_TESTED bool osdProcessStats1(timeUs_t currentTimeUs)
 
     if (ARMING_FLAG(ARMED)) {
         osdUpdateStats();
-        timeUs_t deltaT = currentTimeUs - lastTimeUs;
+        int deltaT = cmpTimeUs(currentTimeUs, lastTimeUs);
         osdFlyTime += deltaT;
         stats.armed_time += deltaT;
+#ifdef USE_LAUNCH_CONTROL
+        if (!isLaunchControlActive()) {
+            osdLaunchTime += deltaT;
+        } else {
+            osdLaunchTime = 0;
+        }
+#endif
     } else if (osdStatsEnabled) {  // handle showing/hiding stats based on OSD disable switch position
         if (displayIsGrabbed(osdDisplayPort)) {
             osdStatsEnabled = false;

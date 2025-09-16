@@ -50,6 +50,7 @@
 #include "drivers/accgyro/accgyro_spi_icm20649.h"
 #include "drivers/accgyro/accgyro_spi_icm20689.h"
 #include "drivers/accgyro/accgyro_spi_icm426xx.h"
+#include "drivers/accgyro/accgyro_spi_icm456xx.h"
 #include "drivers/accgyro/accgyro_spi_lsm6dso.h"
 #include "drivers/accgyro/accgyro_spi_mpu6000.h"
 #include "drivers/accgyro/accgyro_spi_mpu6500.h"
@@ -57,6 +58,7 @@
 #include "drivers/accgyro/accgyro_spi_l3gd20.h"
 #include "drivers/accgyro/accgyro_spi_lsm6dsv16x.h"
 #include "drivers/accgyro/accgyro_mpu.h"
+#include "drivers/accgyro/accgyro_spi_icm40609.h"
 
 #include "pg/pg.h"
 #include "pg/gyrodev.h"
@@ -118,7 +120,7 @@ static void mpu6050FindRevision(gyroDev_t *gyro)
 #ifdef USE_SPI_GYRO
 // Called in ISR context
 // Gyro read has just completed
-busStatus_e mpuIntCallback(uint32_t arg)
+busStatus_e mpuIntCallback(uintptr_t arg)
 {
     gyroDev_t *gyro = (gyroDev_t *)arg;
     int32_t gyroDmaDuration = cmpTimeCycles(getCycleCounter(), gyro->gyroLastEXTI);
@@ -275,7 +277,7 @@ bool mpuGyroReadSPI(gyroDev_t *gyro)
         if (gyro->detectedEXTI > GYRO_EXTI_DETECT_THRESHOLD) {
 #ifdef USE_DMA
             if (spiUseDMA(&gyro->dev)) {
-                gyro->dev.callbackArg = (uint32_t)gyro;
+                gyro->dev.callbackArg = (uintptr_t)gyro;
                 gyro->dev.txBuf[0] = gyro->accDataReg | 0x80;
                 gyro->segments[0].len = gyro->gyroDataReg - gyro->accDataReg + sizeof(uint8_t) + 3 * sizeof(int16_t);
                 gyro->segments[0].callback = mpuIntCallback;
@@ -371,8 +373,14 @@ static gyroSpiDetectFn_t gyroSpiDetectFnTable[] = {
 #ifdef USE_GYRO_SPI_ICM20649
     icm20649SpiDetect,
 #endif
+#if defined(USE_ACCGYRO_ICM45686) || defined(USE_ACCGYRO_ICM45605)
+    icm456xxSpiDetect,
+#endif
 #ifdef USE_GYRO_L3GD20
     l3gd20Detect,
+#endif
+#ifdef USE_ACCGYRO_ICM40609D
+    icm40609SpiDetect,
 #endif
     NULL // Avoid an empty array
 };
@@ -483,6 +491,12 @@ bool mpuDetect(gyroDev_t *gyro, const gyroDeviceConfig_t *config)
 
 void mpuGyroInit(gyroDev_t *gyro)
 {
+    // Initialise both segments of gyro->segments.
+    // Gyro code only sets the first segment. The second segment stays as
+    // an end segment with negateCS false, which enforces DMA whenever possible.
+    busSegment_t nullSegment = {.u.link = {NULL, NULL}, 0, false, NULL};
+    gyro->segments[0] = nullSegment;
+    gyro->segments[1] = nullSegment;
     gyro->accDataReg = MPU_RA_ACCEL_XOUT_H;
     gyro->gyroDataReg = MPU_RA_GYRO_XOUT_H;
     mpuIntExtiInit(gyro);

@@ -47,6 +47,10 @@
 #define DEFAULT_DSHOT_TELEMETRY DSHOT_TELEMETRY_OFF
 #endif
 
+#if !defined(DEFAULT_DSHOT_EDT)
+#define DEFAULT_DSHOT_EDT DSHOT_EDT_OFF
+#endif
+
 PG_REGISTER_WITH_RESET_FN(motorConfig_t, motorConfig, PG_MOTOR_CONFIG, 3);
 
 void pgResetFn_motorConfig(motorConfig_t *motorConfig)
@@ -75,7 +79,6 @@ void pgResetFn_motorConfig(motorConfig_t *motorConfig)
     motorConfig->mincommand = 1000;
     motorConfig->kv = 1960;
 
-#ifdef USE_TIMER
 #ifdef MOTOR1_PIN
     motorConfig->dev.ioTags[0] = IO_TAG(MOTOR1_PIN);
 #endif
@@ -100,7 +103,6 @@ void pgResetFn_motorConfig(motorConfig_t *motorConfig)
 #ifdef MOTOR8_PIN
     motorConfig->dev.ioTags[7] = IO_TAG(MOTOR8_PIN);
 #endif
-#endif
 
     motorConfig->motorPoleCount = 14;   // Most brushless motors that we use are 14 poles
 
@@ -114,6 +116,7 @@ void pgResetFn_motorConfig(motorConfig_t *motorConfig)
 
 #ifdef USE_DSHOT_TELEMETRY
     motorConfig->dev.useDshotTelemetry = DEFAULT_DSHOT_TELEMETRY;
+    motorConfig->dev.useDshotEdt = DEFAULT_DSHOT_EDT;
 #endif
 
 #ifdef USE_DSHOT_BITBANG

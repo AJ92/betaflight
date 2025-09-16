@@ -255,6 +255,7 @@ static void mspEscPassthroughFn(serialPort_t *serialPort)
 }
 #endif
 
+#ifdef USE_SERIAL_PASSTHROUGH
 static serialPort_t *mspFindPassthroughSerialPort(void)
 {
     serialPortUsage_t *portUsage = NULL;
@@ -284,9 +285,13 @@ static void mspSerialPassthroughFn(serialPort_t *serialPort)
         serialPassthrough(passthroughPort, serialPort, NULL, NULL);
     }
 }
+#endif
 
 static void mspFcSetPassthroughCommand(sbuf_t *dst, sbuf_t *src, mspPostProcessFnPtr *mspPostProcessFn)
 {
+#ifndef USE_SERIAL_PASSTHROUGH
+    UNUSED(mspPostProcessFn);
+#endif
     const unsigned int dataSize = sbufBytesRemaining(src);
     if (dataSize == 0) {
         // Legacy format
@@ -297,6 +302,7 @@ static void mspFcSetPassthroughCommand(sbuf_t *dst, sbuf_t *src, mspPostProcessF
     }
 
     switch (mspPassthroughMode) {
+#ifdef USE_SERIAL_PASSTHROUGH
     case MSP_PASSTHROUGH_SERIAL_ID:
     case MSP_PASSTHROUGH_SERIAL_FUNCTION_ID:
         if (mspFindPassthroughSerialPort()) {
@@ -308,6 +314,7 @@ static void mspFcSetPassthroughCommand(sbuf_t *dst, sbuf_t *src, mspPostProcessF
             sbufWriteU8(dst, 0);
         }
         break;
+#endif
 #ifdef USE_SERIAL_4WAY_BLHELI_INTERFACE
     case MSP_PASSTHROUGH_ESC_4WAY:
         // get channel number
@@ -343,16 +350,13 @@ static void mspFcSetPassthroughCommand(sbuf_t *dst, sbuf_t *src, mspPostProcessF
     }
 }
 
-// TODO: Remove the pragma once this is called from unconditional code
-#pragma GCC diagnostic ignored "-Wunused-function"
-static void configRebootUpdateCheckU8(uint8_t *parm, uint8_t value)
+MAYBE_UNUSED static void configRebootUpdateCheckU8(uint8_t *parm, uint8_t value)
 {
     if (*parm != value) {
         setRebootRequired();
     }
     *parm = value;
 }
-#pragma GCC diagnostic pop
 
 static void mspRebootFn(serialPort_t *serialPort)
 {
@@ -640,9 +644,10 @@ static bool mspCommonProcessOutCommand(int16_t cmdMSP, sbuf_t *dst, mspPostProce
         break;
 
     case MSP_FC_VERSION:
-        sbufWriteU8(dst, FC_VERSION_MAJOR);
-        sbufWriteU8(dst, FC_VERSION_MINOR);
+        sbufWriteU8(dst, (uint8_t)(FC_VERSION_YEAR - FC_CALVER_BASE_YEAR)); // year since 2000
+        sbufWriteU8(dst, FC_VERSION_MONTH);
         sbufWriteU8(dst, FC_VERSION_PATCH_LEVEL);
+        sbufWritePString(dst, FC_VERSION_STRING);
         break;
 
     case MSP2_MCU_INFO: {
@@ -947,6 +952,7 @@ static bool mspCommonProcessOutCommand(int16_t cmdMSP, sbuf_t *dst, mspPostProce
 #define OSD_FLAGS_OSD_HARDWARE_MAX_7456 (1 << 4)
 #define OSD_FLAGS_OSD_DEVICE_DETECTED   (1 << 5)
 #define OSD_FLAGS_OSD_MSP_DEVICE        (1 << 6)
+#define OSD_FLAGS_OSD_HARDWARE_AIRBOT_THEIA_OSD (1 << 7)
 
         uint8_t osdFlags = 0;
 
@@ -971,7 +977,11 @@ static bool mspCommonProcessOutCommand(int16_t cmdMSP, sbuf_t *dst, mspPostProce
 
             break;
         case OSD_DISPLAYPORT_DEVICE_MSP:
-            osdFlags |= OSD_FLAGS_OSD_MSP_DEVICE;
+            osdFlags |= OSD_FLAGS_OSD_MSP_DEVICE
+#ifdef USE_MSP_DISPLAYPORT_FONT
+                        | OSD_FLAGS_OSD_HARDWARE_AIRBOT_THEIA_OSD
+#endif
+            ;
             if (displayIsReady) {
                 osdFlags |= OSD_FLAGS_OSD_DEVICE_DETECTED;
             }
@@ -1376,7 +1386,10 @@ case MSP_NAME:
 
         // added in 1.43
         sbufWriteU8(dst, currentControlRateProfile->rates_type);
-
+        
+        // added in 1.47
+        sbufWriteU8(dst, currentControlRateProfile->thrHover8);
+        
         break;
 
     case MSP_PID:
@@ -1602,7 +1615,7 @@ case MSP_NAME:
 #if defined(USE_RC_SMOOTHING_FILTER)
         sbufWriteU8(dst, 0); // not required in API 1.44, was rxConfig()->rc_smoothing_type
         sbufWriteU8(dst, rxConfig()->rc_smoothing_setpoint_cutoff);
-        sbufWriteU8(dst, rxConfig()->rc_smoothing_feedforward_cutoff);
+        sbufWriteU8(dst, 0); // was rxConfig()->rc_smoothing_feedforward_cutoff, now always combined with rc_smoothing_setpoint_cutoff
         sbufWriteU8(dst, 0); // not required in API 1.44, was rxConfig()->rc_smoothing_input_type
         sbufWriteU8(dst, 0); // not required in API 1.44, was rxConfig()->rc_smoothing_derivative_type
 #else
@@ -1809,21 +1822,7 @@ case MSP_NAME:
         break;
 
     case MSP_SENSOR_ALIGNMENT: {
-        uint8_t gyroAlignment;
-#ifdef USE_MULTI_GYRO
-        switch (gyroConfig()->gyro_to_use) {
-        case GYRO_CONFIG_USE_GYRO_2:
-            gyroAlignment = gyroDeviceConfig(1)->alignment;
-            break;
-        case GYRO_CONFIG_USE_GYRO_BOTH:
-            // for dual-gyro in "BOTH" mode we only read/write gyro 0
-        default:
-            gyroAlignment = gyroDeviceConfig(0)->alignment;
-            break;
-        }
-#else
-        gyroAlignment = gyroDeviceConfig(0)->alignment;
-#endif
+        uint8_t gyroAlignment = gyroDeviceConfig(firstEnabledGyro())->alignment;
         sbufWriteU8(dst, gyroAlignment);
         sbufWriteU8(dst, gyroAlignment);  // Starting with 4.0 gyro and acc alignment are the same
 #if defined(USE_MAG)
@@ -1833,33 +1832,8 @@ case MSP_NAME:
 #endif
 
         // API 1.41 - Add multi-gyro indicator, selected gyro, and support for separate gyro 1 & 2 alignment
-        sbufWriteU8(dst, getGyroDetectionFlags());
-#ifdef USE_MULTI_GYRO
-        sbufWriteU8(dst, gyroConfig()->gyro_to_use);
-        sbufWriteU8(dst, gyroDeviceConfig(0)->alignment);
-        sbufWriteU8(dst, gyroDeviceConfig(1)->alignment);
-#else
-        sbufWriteU8(dst, GYRO_CONFIG_USE_GYRO_1);
-        sbufWriteU8(dst, gyroDeviceConfig(0)->alignment);
-        sbufWriteU8(dst, ALIGN_DEFAULT);
-#endif
-        // Added in MSP API 1.47
-        switch (gyroConfig()->gyro_to_use) {
-#ifdef USE_MULTI_GYRO
-        case GYRO_CONFIG_USE_GYRO_2:
-            sbufWriteU16(dst, gyroDeviceConfig(1)->customAlignment.roll);
-            sbufWriteU16(dst, gyroDeviceConfig(1)->customAlignment.pitch);
-            sbufWriteU16(dst, gyroDeviceConfig(1)->customAlignment.yaw);
-            break;
-#endif
-        case GYRO_CONFIG_USE_GYRO_BOTH:
-            // for dual-gyro in "BOTH" mode we only read/write gyro 0
-        default:
-            sbufWriteU16(dst, gyroDeviceConfig(0)->customAlignment.roll);
-            sbufWriteU16(dst, gyroDeviceConfig(0)->customAlignment.pitch);
-            sbufWriteU16(dst, gyroDeviceConfig(0)->customAlignment.yaw);
-            break;
-        }
+        sbufWriteU8(dst, getGyroDetectedFlags());
+        sbufWriteU8(dst, gyroConfig()->gyro_enabled_bitmask); // deprecates gyro_to_use
 
 #ifdef USE_MAG
         sbufWriteU16(dst, compassConfig()->mag_customAlignment.roll);
@@ -1882,7 +1856,7 @@ case MSP_NAME:
         sbufWriteU16(dst, motorConfig()->motorIdle);
         sbufWriteU8(dst, 0); // DEPRECATED: gyro_use_32kHz
         sbufWriteU8(dst, motorConfig()->dev.motorInversion);
-        sbufWriteU8(dst, gyroConfig()->gyro_to_use);
+        sbufWriteU8(dst, 0); // deprecated gyro_to_use
         sbufWriteU8(dst, gyroConfig()->gyro_high_fsr);
         sbufWriteU8(dst, gyroConfig()->gyroMovementCalibrationThreshold);
         sbufWriteU16(dst, gyroConfig()->gyroCalibrationDuration);
@@ -2855,6 +2829,11 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
                 currentControlRateProfile->rates_type = sbufReadU8(src);
             }
 
+            // version 1.47
+            if (sbufBytesRemaining(src) >= 1) {
+                currentControlRateProfile->thrHover8 = sbufReadU8(src);
+            }
+
             initRcProcessing();
         } else {
             return MSP_RESULT_ERROR;
@@ -3006,8 +2985,7 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
         break;
 
     case MSP_SET_SENSOR_ALIGNMENT: {
-        // maintain backwards compatibility for API < 1.41
-        const uint8_t gyroAlignment = sbufReadU8(src);
+        sbufReadU8(src);
         sbufReadU8(src);  // discard deprecated acc_align
 #if defined(USE_MAG)
         compassConfigMutable()->mag_alignment = sbufReadU8(src);
@@ -3015,53 +2993,8 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
         sbufReadU8(src);
 #endif
 
-        if (sbufBytesRemaining(src) >= 3) {
-            // API >= 1.41 - support the gyro_to_use and alignment for gyros 1 & 2
-#ifdef USE_MULTI_GYRO
-            gyroConfigMutable()->gyro_to_use = sbufReadU8(src);
-            gyroDeviceConfigMutable(0)->alignment = sbufReadU8(src);
-            gyroDeviceConfigMutable(1)->alignment = sbufReadU8(src);
-#else
-            sbufReadU8(src);  // unused gyro_to_use
-            gyroDeviceConfigMutable(0)->alignment = sbufReadU8(src);
-            sbufReadU8(src);  // unused gyro_2_sensor_align
-#endif
-        } else {
-            // maintain backwards compatibility for API < 1.41
-#ifdef USE_MULTI_GYRO
-            switch (gyroConfig()->gyro_to_use) {
-            case GYRO_CONFIG_USE_GYRO_2:
-                gyroDeviceConfigMutable(1)->alignment = gyroAlignment;
-                break;
-            case GYRO_CONFIG_USE_GYRO_BOTH:
-                // For dual-gyro in "BOTH" mode we'll only update gyro 0
-            default:
-                gyroDeviceConfigMutable(0)->alignment = gyroAlignment;
-                break;
-            }
-#else
-            gyroDeviceConfigMutable(0)->alignment = gyroAlignment;
-#endif
-        }
-        // Added in API 1.47
-        if (sbufBytesRemaining(src) >= 6) {
-            switch (gyroConfig()->gyro_to_use) {
-#ifdef USE_MULTI_GYRO
-            case GYRO_CONFIG_USE_GYRO_2:
-                gyroDeviceConfigMutable(1)->customAlignment.roll = sbufReadU16(src);
-                gyroDeviceConfigMutable(1)->customAlignment.pitch = sbufReadU16(src);
-                gyroDeviceConfigMutable(1)->customAlignment.yaw = sbufReadU16(src);
-                break;
-#endif
-            case GYRO_CONFIG_USE_GYRO_BOTH:
-                // For dual-gyro in "BOTH" mode we'll only update gyro 0
-            default:
-                gyroDeviceConfigMutable(0)->customAlignment.roll = sbufReadU16(src);
-                gyroDeviceConfigMutable(0)->customAlignment.pitch = sbufReadU16(src);
-                gyroDeviceConfigMutable(0)->customAlignment.yaw = sbufReadU16(src);
-                break;
-            }
-        }
+        gyroConfigMutable()->gyro_enabled_bitmask = sbufReadU8(src);
+
         if (sbufBytesRemaining(src) >= 6) {
 #ifdef USE_MAG
             compassConfigMutable()->mag_customAlignment.roll = sbufReadU16(src);
@@ -3073,6 +3006,7 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
             sbufReadU16(src);
 #endif
         }
+
         break;
     }
 
@@ -3092,7 +3026,7 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
             motorConfigMutable()->dev.motorInversion = sbufReadU8(src);
         }
         if (sbufBytesRemaining(src) >= 8) {
-            gyroConfigMutable()->gyro_to_use = sbufReadU8(src);
+            sbufReadU8(src); // deprecated gyro_to_use
             gyroConfigMutable()->gyro_high_fsr = sbufReadU8(src);
             gyroConfigMutable()->gyroMovementCalibrationThreshold = sbufReadU8(src);
             gyroConfigMutable()->gyroCalibrationDuration = sbufReadU16(src);
@@ -3839,7 +3773,7 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
 #if defined(USE_RC_SMOOTHING_FILTER)
             sbufReadU8(src); // not required in API 1.44, was rc_smoothing_type
             configRebootUpdateCheckU8(&rxConfigMutable()->rc_smoothing_setpoint_cutoff, sbufReadU8(src));
-            configRebootUpdateCheckU8(&rxConfigMutable()->rc_smoothing_feedforward_cutoff, sbufReadU8(src));
+            sbufReadU8(src); // was rc_smoothing_feedforward_cutoff
             sbufReadU8(src); // not required in API 1.44, was rc_smoothing_input_type
             sbufReadU8(src); // not required in API 1.44, was rc_smoothing_derivative_type
 #else

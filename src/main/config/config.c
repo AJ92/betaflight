@@ -296,10 +296,10 @@ static void validateAndFixConfig(void)
 #if defined(USE_MAG)
     buildAlignmentFromStandardAlignment(&compassConfigMutable()->mag_customAlignment, compassConfig()->mag_alignment);
 #endif
-    buildAlignmentFromStandardAlignment(&gyroDeviceConfigMutable(0)->customAlignment, gyroDeviceConfig(0)->alignment);
-#if defined(USE_MULTI_GYRO)
-    buildAlignmentFromStandardAlignment(&gyroDeviceConfigMutable(1)->customAlignment, gyroDeviceConfig(1)->alignment);
-#endif
+
+    for (int i = 0; i < GYRO_COUNT; i++) {
+        buildAlignmentFromStandardAlignment(&gyroDeviceConfigMutable(i)->customAlignment, gyroDeviceConfig(i)->alignment);
+    }
 
 #ifdef USE_ACC
     if (accelerometerConfig()->accZero.values.roll != 0 ||
@@ -411,7 +411,7 @@ static void validateAndFixConfig(void)
     if (systemConfig()->configurationState == CONFIGURATION_STATE_UNCONFIGURED) {
         // enable some compiled-in features by default
         uint32_t autoFeatures =
-            FEATURE_OSD | FEATURE_LED_STRIP;
+            FEATURE_TELEMETRY | FEATURE_OSD | FEATURE_LED_STRIP;
 #if defined(USE_SOFTSERIAL)
         // enable softserial if at least one pin is configured
         for (unsigned i = RESOURCE_SOFTSERIAL_OFFSET; i < RESOURCE_SOFTSERIAL_OFFSET + RESOURCE_SOFTSERIAL_COUNT; i++) {
